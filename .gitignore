@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# Bancos de dados locais
+*.db
+
+# Dados brutos (arquivos grandes — não versionar)
+dados/
+resultado/
+analise_maio26/
+
+# Imagens/treinamento OCR
+imagem/
+ocr_treinamento.py
+
+# Excel de processo (dados sensíveis/grandes)
+*.xlsx
+*.xls
+
+# Logs
+*.log
+
+# VS Code / IDEs
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Executáveis locais
+cloudflared.exe
+cloudflared
+
+# Configuração local de limites (gerada em runtime)
+limites.json
+
+# PPT / arquivos gerados
+*.pptx
+
+# Arquivos de conhecimento e temp
+conhecimento/
