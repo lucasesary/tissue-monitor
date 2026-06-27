@@ -2300,10 +2300,13 @@ def criar_app() -> Dash:
         opts = _opcoes_arquivo(BASE_DIR)
         # Adiciona opção do banco se houver dados disponíveis
         try:
-            from db import carregar_processo_db as _cpdb
-            n_db = len(_cpdb(dias=1))  # query leve para checar disponibilidade
-            if n_db > 0:
-                opts = [{"label": "Banco de dados — últimos 90 dias", "value": _DB_PROC}] + opts
+            from db import _conn as _db_conn
+            with _db_conn() as _c:
+                _cur = _c.cursor()
+                _cur.execute("SELECT COUNT(1) FROM dados_processo")
+                _n = _cur.fetchone()[0]
+            if _n > 0:
+                opts = [{"label": f"Banco de dados — {_n:,} registros", "value": _DB_PROC}] + opts
         except Exception:
             pass
         if not opts:
