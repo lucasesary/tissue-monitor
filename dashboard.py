@@ -20,6 +20,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from dash import ALL, Dash, Input, Output, State, callback, dcc, html, no_update, ctx
+from dash.exceptions import PreventUpdate
 
 from analisar import (
     NOMES_ARQUIVO,
@@ -193,7 +194,7 @@ def _carregar_pacote_de_df(dados: "pd.DataFrame", nome: str) -> dict:
 BASE_DIR    = Path(__file__).resolve().parent
 DADOS_DIR   = BASE_DIR / "dados"
 LIMITES_PATH = BASE_DIR / "limites.json"
-POLL_MS     = 5_000
+POLL_MS     = 30_000
 
 # ── paleta ────────────────────────────────────────────────────────────────
 P = {
@@ -2605,7 +2606,7 @@ def criar_app() -> Dash:
         empty_pareto = _empty_fig("Selecione um parâmetro", 300)
         opts_vazio = [{"label": "Todos", "value": "__todos__"}]
         if nav_ativa != "qualidade":
-            return vz, vz, vz, vz, vz, empty, empty, "", [], opts_vazio, empty_pareto
+            raise PreventUpdate
 
         try:
             dq, specs = carregar_qualidade()
@@ -2720,7 +2721,7 @@ def criar_app() -> Dash:
         empty = _empty_fig("Sem dados", 320)
         sem   = html.Div("—", className="empty")
         if nav_ativa != "downtime":
-            return vz, vz, vz, vz, vz, empty, empty, sem, sem, sem
+            raise PreventUpdate
 
         try:
             dd       = carregar_downtime_paradas(incluir_hayout=True)
@@ -3166,7 +3167,7 @@ def criar_app() -> Dash:
         vz    = kpi_card("—", "—")
         empty = _empty_fig("Sem leituras registradas", 300)
         if nav_ativa != "yankee":
-            return vz, vz, vz, vz, empty, []
+            raise PreventUpdate
 
         df = carregar_temperaturas_yankee(dias=30)
 
@@ -3303,7 +3304,7 @@ def criar_app() -> Dash:
         on_cls   = "nav-tab on"
 
         if nav_ativa != "relatorio":
-            return vz, vz, vz, vz, vz, empty, html.Div(), on_cls, hide_cls
+            raise PreventUpdate
 
         # determina frequência pelo botão disparador
         freq = "MS" if ctx.triggered_id == "rel-freq-ms" else "W"
