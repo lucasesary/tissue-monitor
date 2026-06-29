@@ -19,7 +19,8 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from dash import ALL, Dash, Input, Output, State, callback, dcc, html, no_update, ctx
+import time as _time
+from dash import ALL, Dash, Input, Output, State, callback, clientside_callback, dcc, html, no_update, ctx
 from dash.exceptions import PreventUpdate
 
 from analisar import (
@@ -111,6 +112,20 @@ def pareto_downtime(incluir_hayout: bool = False):  # type: ignore[assignment]
     return grp
 
 _DB_PROC = "__db__"  # valor especial para "carregar dados do banco"
+
+# ── cache em memória (TTL 5 min) para reduzir round-trips ao Neon ─────────
+_DATA_CACHE: dict = {}
+_CACHE_TTL = 300  # segundos
+
+def _cached(key: str, fn):
+    """Retorna fn() do cache se recente, senão executa e armazena."""
+    now = _time.monotonic()
+    entry = _DATA_CACHE.get(key)
+    if entry and now - entry["t"] < _CACHE_TTL:
+        return entry["v"]
+    v = fn()
+    _DATA_CACHE[key] = {"v": v, "t": now}
+    return v
 
 
 def _carregar_pacote_de_df(dados: "pd.DataFrame", nome: str) -> dict:
@@ -2542,8 +2557,35 @@ def criar_app() -> Dash:
             ]))
         return summ, items
 
-    # ── navegação principal ───────────────────────────────────────────────
-    @callback(
+    # ── navegação principal (client-side: zero round-trip ao servidor) ──────
+    clientside_callback(
+        """
+        function(n1, n2, n3, n4, n5, n6) {
+            var t = dash_clientside.callback_context.triggered;
+            var tid = (t && t.length) ? t[0].prop_id.split('.')[0] : 'nav-processo';
+            var ids  = ['nav-processo','nav-qualidade','nav-downtime','nav-pq','nav-yankee','nav-relatorio'];
+            var abas = ['processo','qualidade','downtime','pq','yankee','relatorio'];
+            var idx  = ids.indexOf(tid);
+            var ativa = (idx >= 0) ? abas[idx] : 'processo';
+            var show = {display:'block'};
+            var hide = {display:'none'};
+            return [
+                ativa,
+                ativa==='processo'  ? 'nav-tab on':'nav-tab',
+                ativa==='qualidade' ? 'nav-tab on':'nav-tab',
+                ativa==='downtime'  ? 'nav-tab on':'nav-tab',
+                ativa==='pq'        ? 'nav-tab on':'nav-tab',
+                ativa==='yankee'    ? 'nav-tab on':'nav-tab',
+                ativa==='relatorio' ? 'nav-tab on':'nav-tab',
+                ativa==='processo'  ? show:hide,
+                ativa==='qualidade' ? show:hide,
+                ativa==='downtime'  ? show:hide,
+                ativa==='pq'        ? show:hide,
+                ativa==='yankee'    ? show:hide,
+                ativa==='relatorio' ? show:hide
+            ];
+        }
+        """,
         Output("nav-ativa",       "data"),
         Output("nav-processo",    "className"),
         Output("nav-qualidade",   "className"),
@@ -2564,25 +2606,6 @@ def criar_app() -> Dash:
         Input("nav-yankee",       "n_clicks"),
         Input("nav-relatorio",    "n_clicks"),
     )
-    def nav(*_):
-        mapa = {"nav-processo": "processo", "nav-qualidade": "qualidade",
-                "nav-downtime": "downtime", "nav-pq": "pq", "nav-yankee": "yankee",
-                "nav-relatorio": "relatorio"}
-        ativa = mapa.get(ctx.triggered_id, "processo")
-        cls   = lambda k: "nav-tab on" if mapa.get(k) == ativa else "nav-tab"
-        show  = {"display": "block"}
-        hide  = {"display": "none"}
-        return (
-            ativa,
-            cls("nav-processo"), cls("nav-qualidade"),
-            cls("nav-downtime"), cls("nav-pq"), cls("nav-yankee"), cls("nav-relatorio"),
-            show if ativa == "processo"  else hide,
-            show if ativa == "qualidade" else hide,
-            show if ativa == "downtime"  else hide,
-            show if ativa == "pq"        else hide,
-            show if ativa == "yankee"    else hide,
-            show if ativa == "relatorio" else hide,
-        )
 
     # ── aba qualidade: KPIs ───────────────────────────────────────────────
     @callback(
@@ -2609,7 +2632,7 @@ def criar_app() -> Dash:
             raise PreventUpdate
 
         try:
-            dq, specs = carregar_qualidade()
+            dq, specs = _cached("qual", carregar_qualidade)
         except Exception as e:
             return vz, vz, vz, vz, vz, empty, empty, f"Erro: {e}", [], opts_vazio, empty_pareto
 
@@ -2724,10 +2747,10 @@ def criar_app() -> Dash:
             raise PreventUpdate
 
         try:
-            dd       = carregar_downtime_paradas(incluir_hayout=True)
-            dd_reais = carregar_downtime_paradas(incluir_hayout=False)
-            pareto   = pareto_downtime()
-            dq, _    = carregar_qualidade()
+            dd       = _cached("dt_full",  lambda: carregar_downtime_paradas(incluir_hayout=True))
+            dd_reais = _cached("dt_real",  lambda: carregar_downtime_paradas(incluir_hayout=False))
+            pareto   = _cached("dt_pareto",pareto_downtime)
+            dq, _    = _cached("qual",     carregar_qualidade)
         except Exception as e:
             err = html.Div(f"Erro: {e}", className="empty")
             return vz, vz, vz, vz, vz, empty, empty, err, err, err
@@ -2919,8 +2942,8 @@ def criar_app() -> Dash:
             return vz, vz, vz, vz, vz, empty, [], None, *[vazios]*6, None
 
         try:
-            dq, _ = carregar_qualidade()
-            dp    = carregar_producao()
+            dq, _ = _cached("qual", carregar_qualidade)
+            dp    = _cached("prod", carregar_producao)
         except Exception as e:
             return vz, vz, vz, vz, vz, empty, [], None, *[[html.Div(f"Erro: {e}")]]*6, None
 
@@ -2991,8 +3014,8 @@ def criar_app() -> Dash:
         from io import StringIO
         dados_opc = pd.read_json(StringIO(pkg["dados_json"]), orient="split")
         dados_opc["timestamp"] = pd.to_datetime(dados_opc["timestamp"])
-        dq, _ = carregar_qualidade()
-        dp    = carregar_producao()
+        dq, _ = _cached("qual", carregar_qualidade)
+        dp    = _cached("prod", carregar_producao)
         df_j, _ = correlacionar_processo_qualidade(dados_opc, dq, dp)
         return fig_scatter_pq(df_j, var_proc, target)
 
@@ -3169,7 +3192,7 @@ def criar_app() -> Dash:
         if nav_ativa != "yankee":
             raise PreventUpdate
 
-        df = carregar_temperaturas_yankee(dias=30)
+        df = _cached("yankee", lambda: carregar_temperaturas_yankee(dias=30))
 
         if df.empty:
             return (
