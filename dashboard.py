@@ -2307,8 +2307,8 @@ def criar_app() -> Dash:
                 _n = _cur.fetchone()[0]
             if _n > 0:
                 opts = [{"label": f"Banco de dados — {_n:,} registros", "value": _DB_PROC}] + opts
-        except Exception:
-            pass
+        except Exception as _e:
+            print(f"[PROCESSO] erro ao consultar banco: {_e}", flush=True)
         if not opts:
             return [], no_update
         value_out = opts[0]["value"] if sel_atual is None else no_update
