@@ -2349,7 +2349,7 @@ def criar_app() -> Dash:
             if ctx.triggered_id == "poll" and sig_cur == _DB_PROC:
                 return no_update, no_update, no_update, no_update
             try:
-                df_proc = _cproc_db(dias=365)
+                df_proc = _cproc_db(dias=31)
             except Exception as e:
                 return sig_cur, no_update, f"Erro ao carregar banco: {e}", "Erro"
             if df_proc.empty:
