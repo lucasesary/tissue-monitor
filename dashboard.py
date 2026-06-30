@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
+import traceback
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
@@ -2625,108 +2626,110 @@ def criar_app() -> Dash:
         Input("sel-qual-produto",   "value"),
     )
     def aba_qualidade(nav_ativa, param, tipo_qual, produto_sel):
+        if nav_ativa != "qualidade":
+            raise PreventUpdate
+
         vz = kpi_card("—", "—")
         empty = _empty_fig("Sem dados", 320)
         empty_pareto = _empty_fig("Selecione um parâmetro", 300)
         opts_vazio = [{"label": "Todos", "value": "__todos__"}]
-        if nav_ativa != "qualidade":
-            raise PreventUpdate
 
         try:
             dq, specs = _cached("qual", carregar_qualidade)
-        except Exception as e:
-            return vz, vz, vz, vz, vz, empty, empty, f"Erro: {e}", [], opts_vazio, empty_pareto
 
-        if dq.empty:
-            return vz, vz, vz, vz, vz, empty, empty, "Sem dados de qualidade", [], opts_vazio, empty_pareto
+            if dq.empty:
+                return vz, vz, vz, vz, vz, empty, empty, "Sem dados de qualidade", [], opts_vazio, empty_pareto
 
-        # opções de produto a partir dos dados carregados
-        col_prod = "Familia Atual" if "Familia Atual" in dq.columns else (
-                   "Familia" if "Familia" in dq.columns else None)
-        if col_prod:
-            prods = sorted(dq[col_prod].dropna().unique().tolist())
-            produto_opts = [{"label": "Todos", "value": "__todos__"}] + [
-                {"label": p, "value": p} for p in prods]
-        else:
-            produto_opts = opts_vazio
+            # opções de produto a partir dos dados carregados
+            col_prod = "Familia Atual" if "Familia Atual" in dq.columns else (
+                       "Familia" if "Familia" in dq.columns else None)
+            if col_prod:
+                prods = sorted(dq[col_prod].dropna().unique().tolist())
+                produto_opts = [{"label": "Todos", "value": "__todos__"}] + [
+                    {"label": p, "value": p} for p in prods]
+            else:
+                produto_opts = opts_vazio
 
-        # filtrar por produto selecionado
-        dq_f = dq
-        if produto_sel and produto_sel != "__todos__" and col_prod:
-            dq_f = dq[dq[col_prod] == produto_sel].copy()
+            # filtrar por produto selecionado
+            dq_f = dq
+            if produto_sel and produto_sel != "__todos__" and col_prod:
+                dq_f = dq[dq[col_prod] == produto_sel].copy()
 
-        conf = resumo_conformidade(dq_f, specs)
+            conf = resumo_conformidade(dq_f, specs)
 
-        n_jumbos  = len(dq_f)
-        produtos  = dq_f[col_prod].nunique() if col_prod else 0
-        periodo   = f"{dq_f['Data'].min().strftime('%d/%m')} → {dq_f['Data'].max().strftime('%d/%m/%Y')}" if not dq_f.empty else "—"
+            n_jumbos  = len(dq_f)
+            produtos  = dq_f[col_prod].nunique() if col_prod else 0
+            periodo   = f"{dq_f['Data'].min().strftime('%d/%m')} → {dq_f['Data'].max().strftime('%d/%m/%Y')}" if not dq_f.empty else "—"
 
-        if conf.empty:
-            ok_pct = fora = criticos = 0
-        else:
-            total_c = len(conf[conf["status"] != "SEM_SPEC"])
-            ok_n    = len(conf[conf["status"] == "OK"])
-            ok_pct  = round(ok_n / total_c * 100, 1) if total_c else 0
-            fora    = len(conf[conf["status"].isin(["FORA_LSE","FORA_LSC"])])
-            criticos = len(conf[conf["status"] == "FORA_LSE"])
+            if conf.empty:
+                ok_pct = fora = criticos = 0
+            else:
+                total_c = len(conf[conf["status"] != "SEM_SPEC"])
+                ok_n    = len(conf[conf["status"] == "OK"])
+                ok_pct  = round(ok_n / total_c * 100, 1) if total_c else 0
+                fora    = len(conf[conf["status"].isin(["FORA_LSE","FORA_LSC"])])
+                criticos = len(conf[conf["status"] == "FORA_LSE"])
 
-        cor_ok = P["ok"] if ok_pct >= 90 else P["warn"] if ok_pct >= 70 else P["crit"]
+            cor_ok = P["ok"] if ok_pct >= 90 else P["warn"] if ok_pct >= 70 else P["crit"]
 
-        prod_label = f" — {produto_sel}" if produto_sel and produto_sel != "__todos__" else ""
-        kpis = (
-            kpi_card("Período", periodo, "", P["accent"]),
-            kpi_card("Jumbos", str(n_jumbos), f"analisados{prod_label}", P["accent"]),
-            kpi_card("Produtos", str(produtos), "famílias", P["muted2"]),
-            kpi_card("Conformidade", f"{ok_pct}%", "dentro da especificação", cor_ok),
-            kpi_card("Fora de spec", str(fora), f"{criticos} acima do LSE", P["crit"] if fora else P["ok"]),
-        )
+            prod_label = f" — {produto_sel}" if produto_sel and produto_sel != "__todos__" else ""
+            kpis = (
+                kpi_card("Período", periodo, "", P["accent"]),
+                kpi_card("Jumbos", str(n_jumbos), f"analisados{prod_label}", P["accent"]),
+                kpi_card("Produtos", str(produtos), "famílias", P["muted2"]),
+                kpi_card("Conformidade", f"{ok_pct}%", "dentro da especificação", cor_ok),
+                kpi_card("Fora de spec", str(fora), f"{criticos} acima do LSE", P["crit"] if fora else P["ok"]),
+            )
 
-        if param:
-            g_param = fig_imr(conf, param) if tipo_qual == "imr" else fig_qualidade_param(conf, param)
-            g_pareto = fig_pareto_valores(conf, param)
-        else:
-            g_param = empty
-            g_pareto = empty_pareto
-        g_conf = fig_conformidade_produto(conf)
-
-        # resumo textual
-        resumo_items = []
-        if not conf.empty:
-            por_status = conf[conf["status"] != "SEM_SPEC"].groupby("status")["Unidade"].count()
-            for s, n in por_status.items():
-                cor = {"OK": P["ok"], "FORA_LSE": P["crit"], "FORA_LSC": P["warn"]}.get(s, P["muted"])
-                resumo_items.append(html.Div(style={"display":"flex","justifyContent":"space-between",
-                                                     "padding":"8px 0","borderBottom":f"1px solid {P['border']}"},
-                    children=[badge(s, cor), html.Span(f"{n} medições", style={"fontSize":"0.82rem","color":P["text"]})]))
-
-        # jumbos fora de spec — segue seleção de produto E parâmetro
-        alertas_items = []
-        if not conf.empty:
-            conf_fora = conf[conf["status"].isin(["FORA_LSE","FORA_LSC"])]
             if param:
-                conf_fora = conf_fora[conf_fora["parametro"] == param]
-            fora_df = conf_fora.sort_values("Data", ascending=False).head(40)
-            titulo_fora = f"Jumbos fora — {param}" if param else "Jumbos fora de especificação"
-            for _, r in fora_df.iterrows():
-                cor = P["crit"] if r["status"] == "FORA_LSE" else P["warn"]
-                alertas_items.append(html.Div(className="alert-item", children=[
-                    html.Div(className="alert-hd", children=[
-                        badge(r["status"], cor),
-                        html.Strong(r["parametro"], style={"fontSize":"0.83rem"}),
-                        html.Span(f" · {r['Familia']}", style={"fontSize":"0.75rem","color":P["muted2"]}),
-                    ]),
-                    html.Div(
-                        f"{r['Unidade']}  ·  {r['Data'].strftime('%d/%m %H:%M')}  ·  valor: {r['valor']:.3f}"
-                        + (f"  (LSE: {r['LSE']:.3f})" if r["status"]=="FORA_LSE" and r["LSE"] else
-                           f"  (LSC: {r['LSC']:.3f})" if r["status"]=="FORA_LSC" and r["LSC"] else ""),
-                        className="alert-dt"),
-                ]))
+                g_param = fig_imr(conf, param) if tipo_qual == "imr" else fig_qualidade_param(conf, param)
+                g_pareto = fig_pareto_valores(conf, param)
+            else:
+                g_param = empty
+                g_pareto = empty_pareto
+            g_conf = fig_conformidade_produto(conf)
 
-        return (*kpis, g_param, g_conf,
-                resumo_items or html.Div("Sem especificações cadastradas.", className="empty"),
-                alertas_items or html.Div("Nenhum jumbo fora de especificação.", className="empty"),
-                produto_opts,
-                g_pareto)
+            # resumo textual
+            resumo_items = []
+            if not conf.empty:
+                por_status = conf[conf["status"] != "SEM_SPEC"].groupby("status")["Unidade"].count()
+                for s, n in por_status.items():
+                    cor = {"OK": P["ok"], "FORA_LSE": P["crit"], "FORA_LSC": P["warn"]}.get(s, P["muted"])
+                    resumo_items.append(html.Div(style={"display":"flex","justifyContent":"space-between",
+                                                         "padding":"8px 0","borderBottom":f"1px solid {P['border']}"},
+                        children=[badge(s, cor), html.Span(f"{n} medições", style={"fontSize":"0.82rem","color":P["text"]})]))
+
+            # jumbos fora de spec — segue seleção de produto E parâmetro
+            alertas_items = []
+            if not conf.empty:
+                conf_fora = conf[conf["status"].isin(["FORA_LSE","FORA_LSC"])]
+                if param:
+                    conf_fora = conf_fora[conf_fora["parametro"] == param]
+                fora_df = conf_fora.sort_values("Data", ascending=False).head(40)
+                for _, r in fora_df.iterrows():
+                    cor = P["crit"] if r["status"] == "FORA_LSE" else P["warn"]
+                    alertas_items.append(html.Div(className="alert-item", children=[
+                        html.Div(className="alert-hd", children=[
+                            badge(r["status"], cor),
+                            html.Strong(r["parametro"], style={"fontSize":"0.83rem"}),
+                            html.Span(f" · {r['Familia']}", style={"fontSize":"0.75rem","color":P["muted2"]}),
+                        ]),
+                        html.Div(
+                            f"{r['Unidade']}  ·  {r['Data'].strftime('%d/%m %H:%M')}  ·  valor: {r['valor']:.3f}"
+                            + (f"  (LSE: {r['LSE']:.3f})" if r["status"]=="FORA_LSE" and r["LSE"] else
+                               f"  (LSC: {r['LSC']:.3f})" if r["status"]=="FORA_LSC" and r["LSC"] else ""),
+                            className="alert-dt"),
+                    ]))
+
+            return (*kpis, g_param, g_conf,
+                    resumo_items or html.Div("Sem especificações cadastradas.", className="empty"),
+                    alertas_items or html.Div("Nenhum jumbo fora de especificação.", className="empty"),
+                    produto_opts,
+                    g_pareto)
+
+        except Exception as e:
+            print(f"[QUALIDADE] ERRO:\n{traceback.format_exc()}", flush=True)
+            return vz, vz, vz, vz, vz, empty, empty, f"Erro: {e}", [], opts_vazio, empty_pareto
 
     # ── aba downtime ──────────────────────────────────────────────────────
     @callback(
