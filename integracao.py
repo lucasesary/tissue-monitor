@@ -335,18 +335,49 @@ def carregar_producao(caminho: Path | None = None) -> pd.DataFrame:
 
 # ── downtime ──────────────────────────────────────────────────────────────
 
+def _dt_flat(raw: pd.DataFrame) -> pd.DataFrame:
+    """Parser para formato flat: uma linha por evento, Início já é timestamp completo."""
+    df = raw.copy()
+    df.columns = [str(v).strip() for v in df.iloc[0]]
+    df = df.iloc[1:].reset_index(drop=True)
+
+    def _col(kws):
+        for c in df.columns:
+            cl = c.lower()
+            if all(k in cl for k in kws):
+                return c
+        return None
+
+    col_inicio = _col(["cio"])   # "Início" → encoding garble, mas "cio" final é ASCII
+    col_dur    = _col(["minuto"])
+    col_classe = _col(["classe"])
+    col_tipo   = next((c for c in df.columns if c.lower() == "tipo"), None)
+    col_causa  = _col(["causa"])
+    col_maq    = next((c for c in df.columns
+                       if "quina" in c.lower() and "tipo" not in c.lower()), None)
+
+    if col_inicio is None or col_dur is None:
+        return pd.DataFrame()
+
+    out = pd.DataFrame({
+        "Início":             pd.to_datetime(df[col_inicio], errors="coerce"),
+        "Classe":             df[col_classe].astype(str).str.strip() if col_classe else "",
+        "Tipo":               df[col_tipo].astype(str).str.strip() if col_tipo else "",
+        "Causa":              df[col_causa].astype(str).str.strip() if col_causa else "",
+        "Duração em Minutos": pd.to_numeric(df[col_dur], errors="coerce"),
+        "Máquina":            df[col_maq].astype(str).str.strip() if col_maq else _AT1_MAQUINA,
+    })
+    out = out.dropna(subset=["Início", "Duração em Minutos"])
+    return out[out["Duração em Minutos"] > 0].reset_index(drop=True)
+
+
 def carregar_downtime(caminho: Path | None = None) -> pd.DataFrame:
     """
-    Lê o relatório de paradas — usa TODOS os eventos individuais (linhas com Horário).
-
-    Estrutura hierárquica do arquivo:
-    - Linhas "pai" (com Data + Máquina + Classe): definem contexto do bloco
-    - Linhas "rótulo" (com Descrição mas sem Horário/Tempo): Causa do evento seguinte
-    - Linhas "evento" (com Horário 'HH:MM -> HH:MM' e Tempo): evento real individual
+    Lê o relatório de paradas. Suporta dois formatos:
+    - Flat (novo): uma linha por evento com Início/Fim como timestamps completos
+    - Hierárquico (antigo): linhas pai/filho com Horário 'HH:MM -> HH:MM'
 
     Retorna: Início, Classe, Tipo, Causa, Duração em Minutos, Máquina
-
-    caminho: se fornecido, lê esse arquivo diretamente; caso contrário busca em dados/downtime/.
     """
     arq = Path(caminho) if caminho is not None else _primeiro_arquivo(BASE / "downtime")
     if arq is None:
@@ -357,6 +388,12 @@ def carregar_downtime(caminho: Path | None = None) -> pd.DataFrame:
     except Exception as e:
         raise ValueError(f"Não foi possível ler o arquivo de downtime '{arq.name}': {e}") from e
 
+    # detecta formato pela primeira linha: flat tem "Início" + "Minutos"
+    first = [str(v).strip().lower() for v in raw.iloc[0] if pd.notna(v)]
+    if any("cio" in v for v in first) and any("minuto" in v for v in first):
+        return _dt_flat(raw)
+
+    # — formato hierárquico (arquivo antigo) —
     # localiza linha de cabeçalho (contém 'Data' e 'Classe')
     header_row = None
     for i in range(min(30, len(raw))):
