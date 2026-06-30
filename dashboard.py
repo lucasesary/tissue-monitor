@@ -58,23 +58,16 @@ from db import (
     carregar_producao_db   as _cp_db,
     carregar_downtime_db   as _cd_db,
     carregar_processo_db   as _cproc_db,
+    carregar_specs_db      as _cs_db,
 )
-from integracao import _parsear_specs, BASE as _BASE_DADOS
+from integracao import BASE as _BASE_DADOS
 
 _DIAS_DB = 90  # janela de dados carregada do banco
 
 
 def carregar_qualidade(caminho=None):  # type: ignore[assignment]
-    df = _cq_db(dias=_DIAS_DB)
-    _qual_dir = _BASE_DADOS / "qualidade"
-    _arq = next(
-        (p for p in sorted(_qual_dir.glob("*.xls*"),
-                            key=lambda p: p.stat().st_mtime, reverse=True)
-         if any("spec" in s.lower() or "especifica" in s.lower()
-                for s in pd.ExcelFile(p).sheet_names)),
-        None,
-    ) if _qual_dir.exists() else None
-    specs = _parsear_specs(_arq) if _arq else pd.DataFrame()
+    df    = _cq_db(dias=_DIAS_DB)
+    specs = _cs_db()
     return df, specs
 
 

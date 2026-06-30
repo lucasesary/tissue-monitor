@@ -123,6 +123,15 @@ def init_db() -> None:
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_proc_ts ON dados_processo (ts)")
         cur.execute("""
+            CREATE TABLE IF NOT EXISTS specs (
+                produto    TEXT NOT NULL,
+                limite     TEXT NOT NULL,
+                valores    JSONB NOT NULL DEFAULT '{}',
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (produto, limite)
+            )
+        """)
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS ingestao_log (
                 id                 SERIAL PRIMARY KEY,
                 email_from         TEXT,
@@ -409,6 +418,40 @@ def log_ingestao(email_from: str, email_subject: str, arquivo_nome: str,
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (email_from, email_subject, arquivo_nome, tipo,
               registros, status, erro_msg))
+
+
+# ── specs de produto ──────────────────────────────────────────────────────
+
+def upsert_specs(df: pd.DataFrame) -> int:
+    """Salva DataFrame de specs (MultiIndex produto×limite) no banco. Retorna nº de linhas."""
+    if df.empty:
+        return 0
+    inseridos = 0
+    with _conn() as con:
+        cur = con.cursor()
+        for (produto, limite), row in df.iterrows():
+            valores = {k: (None if pd.isna(v) else float(v)) for k, v in row.items()}
+            cur.execute("""
+                INSERT INTO specs (produto, limite, valores)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (produto, limite)
+                DO UPDATE SET valores = EXCLUDED.valores, updated_at = NOW()
+            """, (produto, limite, psycopg2.extras.Json(valores)))
+            inseridos += cur.rowcount
+    return inseridos
+
+
+def carregar_specs_db() -> pd.DataFrame:
+    """Retorna specs de produto como DataFrame com MultiIndex (produto, limite)."""
+    with _conn() as con:
+        cur = con.cursor()
+        cur.execute("SELECT produto, limite, valores FROM specs ORDER BY produto, limite")
+        rows = cur.fetchall()
+    if not rows:
+        return pd.DataFrame()
+    registros = [{"produto": p, "limite": l, **(v or {})} for p, l, v in rows]
+    df = pd.DataFrame(registros).set_index(["produto", "limite"])
+    return df.apply(pd.to_numeric, errors="coerce")
 
 
 # ── inicialização rápida ──────────────────────────────────────────────────
