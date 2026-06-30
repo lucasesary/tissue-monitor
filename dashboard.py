@@ -65,13 +65,14 @@ _DIAS_DB = 90  # janela de dados carregada do banco
 
 def carregar_qualidade(caminho=None):  # type: ignore[assignment]
     df = _cq_db(dias=_DIAS_DB)
+    _qual_dir = _BASE_DADOS / "qualidade"
     _arq = next(
-        (p for p in sorted((_BASE_DADOS / "qualidade").glob("*.xls*"),
+        (p for p in sorted(_qual_dir.glob("*.xls*"),
                             key=lambda p: p.stat().st_mtime, reverse=True)
          if any("spec" in s.lower() or "especifica" in s.lower()
                 for s in pd.ExcelFile(p).sheet_names)),
         None,
-    )
+    ) if _qual_dir.exists() else None
     specs = _parsear_specs(_arq) if _arq else pd.DataFrame()
     return df, specs
 
