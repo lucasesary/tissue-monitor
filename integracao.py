@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 BASE     = Path(__file__).resolve().parent / "dados"
@@ -550,49 +551,56 @@ def resumo_conformidade(df_qual: pd.DataFrame,
     if df_qual.empty or df_specs.empty:
         return pd.DataFrame()
 
-    registros = []
-    for _, row in df_qual.iterrows():
-        produto = row.get("Familia Atual", "")
-        for param in PARAMS_QUALIDADE_PRINCIPAIS:
-            if param not in df_qual.columns:
-                continue
-            valor = row.get(param)
-            if pd.isna(valor):
-                continue
+    params = [p for p in PARAMS_QUALIDADE_PRINCIPAIS if p in df_qual.columns]
+    if not params:
+        return pd.DataFrame()
 
-            lse = meta = lsc = None
-            try:
-                if (produto, "LSE") in df_specs.index and param in df_specs.columns:
-                    lse = df_specs.loc[(produto, "LSE"), param]
-                if (produto, "Meta") in df_specs.index and param in df_specs.columns:
-                    meta = df_specs.loc[(produto, "Meta"), param]
-                if (produto, "LSC") in df_specs.index and param in df_specs.columns:
-                    lsc = df_specs.loc[(produto, "LSC"), param]
-            except (KeyError, TypeError):
-                pass
+    # qualidade: wide → long (uma linha por jumbo×parâmetro)
+    id_cols = [c for c in ["Unidade", "Data", "Familia Atual"] if c in df_qual.columns]
+    long = (
+        df_qual[id_cols + params]
+        .melt(id_vars=id_cols, value_vars=params, var_name="parametro", value_name="valor")
+        .dropna(subset=["valor"])
+        .rename(columns={"Familia Atual": "Familia"})
+    )
 
-            if pd.isna(lse) and pd.isna(lsc):
-                status = "SEM_SPEC"
-            elif not pd.isna(lse) and valor > lse:
-                status = "FORA_LSE"
-            elif not pd.isna(lsc) and valor < lsc:
-                status = "FORA_LSC"
-            else:
-                status = "OK"
+    # specs: wide → long → pivot com LSE/LSC/Meta como colunas
+    spec_params = [p for p in params if p in df_specs.columns]
+    if spec_params:
+        spec_pivot = (
+            df_specs[spec_params].reset_index()
+            .melt(id_vars=["produto", "limite"], value_vars=spec_params,
+                  var_name="parametro", value_name="val")
+            .dropna(subset=["val"])
+            .pivot_table(index=["produto", "parametro"], columns="limite",
+                         values="val", aggfunc="first")
+            .reset_index()
+        )
+        for lim in ["LSE", "LSC", "Meta"]:
+            if lim not in spec_pivot.columns:
+                spec_pivot[lim] = float("nan")
+        long = long.merge(
+            spec_pivot[["produto", "parametro", "LSE", "LSC", "Meta"]],
+            left_on=["Familia", "parametro"],
+            right_on=["produto", "parametro"],
+            how="left",
+        ).drop(columns=["produto"])
+    else:
+        long["LSE"] = long["LSC"] = long["Meta"] = float("nan")
 
-            registros.append({
-                "Unidade": row.get("Unidade"),
-                "Data": row.get("Data"),
-                "Familia": produto,
-                "parametro": param,
-                "valor": round(float(valor), 4),
-                "LSE": float(lse) if pd.notna(lse) else None,
-                "LSC": float(lsc) if pd.notna(lsc) else None,
-                "Meta": float(meta) if pd.notna(meta) else None,
-                "status": status,
-            })
-
-    return pd.DataFrame(registros)
+    # status vetorizado
+    val = pd.to_numeric(long["valor"], errors="coerce")
+    lse = pd.to_numeric(long["LSE"],   errors="coerce")
+    lsc = pd.to_numeric(long["LSC"],   errors="coerce")
+    long["status"] = np.select(
+        [lse.isna() & lsc.isna(),
+         ~lse.isna() & (val > lse),
+         ~lsc.isna() & (val < lsc)],
+        ["SEM_SPEC", "FORA_LSE", "FORA_LSC"],
+        default="OK",
+    )
+    long["valor"] = val.round(4)
+    return long.reset_index(drop=True)
 
 
 # ── correlação processo × qualidade ──────────────────────────────────────

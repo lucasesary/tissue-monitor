@@ -75,8 +75,12 @@ def carregar_producao(caminho=None):  # type: ignore[assignment]
     return _cp_db(dias=_DIAS_DB)
 
 
+def _dt_base() -> "pd.DataFrame":
+    return _cd_db(dias=_DIAS_DB)
+
+
 def carregar_downtime_paradas(incluir_hayout: bool = False):  # type: ignore[assignment]
-    df = _cd_db(dias=_DIAS_DB)
+    df = _cached("dt_base", _dt_base)
     if not incluir_hayout and not df.empty and "Classe" in df.columns:
         classe_norm = df["Classe"].str.replace(r"\s+", "", regex=True).str.upper()
         df = df[~classe_norm.isin(["HAY-HAYOUT", "HAYHAYOUT"])].reset_index(drop=True)
