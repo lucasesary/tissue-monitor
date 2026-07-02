@@ -520,29 +520,137 @@ def fig_corr(dados: pd.DataFrame, params: list[str]) -> go.Figure:
     return fig
 
 
-def fig_stats(dados: pd.DataFrame, params: list[str]) -> go.Figure:
-    """Gráfico de box-plot dos parâmetros selecionados para o período."""
+_FILL_ALPHA = [
+    "rgba(0,212,255,0.12)",   # #00D4FF
+    "rgba(168,85,247,0.12)",  # #A855F7
+    "rgba(255,64,129,0.12)",  # #FF4081
+    "rgba(0,230,118,0.12)",   # #00E676
+    "rgba(255,179,0,0.12)",   # #FFB300
+    "rgba(249,115,22,0.12)",  # #F97316
+    "rgba(6,182,212,0.12)",   # #06B6D4
+    "rgba(236,72,153,0.12)",  # #EC4899
+]
+
+
+def fig_media_diaria(dados: pd.DataFrame, params: list[str],
+                     paradas: "pd.DataFrame | None" = None) -> go.Figure:
+    """Linha de média diária por parâmetro, com banda ±1σ."""
+    cols = [p for p in params if p in dados.columns and dados[p].notna().sum() >= 2]
+    if not cols:
+        return _empty_fig("Sem dados para o período", h=360)
+
+    df = dados[["timestamp"] + cols].copy()
+    df["_dia"] = df["timestamp"].dt.floor("D")
+
+    grp = df.groupby("_dia")[cols]
+    media_d = grp.mean()
+    std_d   = grp.std()
+    n_d     = grp.count()
+
+    fig = go.Figure()
+
+    # bandas de parada
+    if paradas is not None and not paradas.empty:
+        for _, s in paradas.iterrows():
+            fig.add_vrect(x0=s["inicio"], x1=s["fim"],
+                          fillcolor=P["stop"], opacity=0.12,
+                          layer="below", line_width=0)
+
+    for i, p in enumerate(cols):
+        cor      = P["lines"][i % len(P["lines"])]
+        fill_cor = _FILL_ALPHA[i % len(_FILL_ALPHA)]
+        dias   = media_d.index
+        medias = media_d[p]
+        stds   = std_d[p].fillna(0)
+        ns     = n_d[p]
+
+        # banda ±1σ
+        fig.add_trace(go.Scatter(
+            x=list(dias) + list(dias[::-1]),
+            y=list(medias + stds) + list((medias - stds)[::-1]),
+            fill="toself",
+            fillcolor=fill_cor,
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+
+        # linha de média
+        fig.add_trace(go.Scatter(
+            x=dias, y=medias,
+            name=p[:28],
+            mode="lines+markers",
+            line=dict(color=cor, width=2),
+            marker=dict(color=cor, size=6),
+            customdata=list(zip(ns, stds.round(3))),
+            hovertemplate=(
+                "<b>%{x|%d/%m/%Y}</b><br>"
+                f"{p}: <b>%{{y:.3f}}</b><br>"
+                "n=%{customdata[0]}  σ=%{customdata[1]}"
+                "<extra></extra>"
+            ),
+        ))
+
+    fig.update_layout(
+        template="plotly_white",
+        paper_bgcolor=P["card"], plot_bgcolor=P["plot"], font=dict(color=P["text"]),
+        height=360,
+        margin=dict(l=54, r=18, t=32, b=42),
+        legend=dict(orientation="h", y=1.04, x=0, font=dict(size=11, color=P["text"]),
+                    bgcolor="rgba(0,0,0,0)"),
+        xaxis=dict(gridcolor="rgba(0,212,255,0.1)", tickfont=dict(size=10, color="#E2E8F0"),
+                   dtick="D1", tickformat="%d/%m",
+                   showgrid=True, zeroline=False, linecolor="rgba(0,212,255,0.2)"),
+        yaxis=dict(gridcolor="rgba(0,212,255,0.1)", tickfont=dict(size=10, color="#E2E8F0"),
+                   showgrid=True, zeroline=False, title="Média diária",
+                   linecolor="rgba(0,212,255,0.2)"),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#0F1524", font_size=12, font_color="#FFFFFF", bordercolor="#00D4FF"),
+    )
+    return fig
+
+
+def fig_medias_mensais(dados: pd.DataFrame, params: list[str]) -> go.Figure:
+    """Barras agrupadas por mês — média mensal de cada parâmetro selecionado."""
     cols = [p for p in params if p in dados.columns and dados[p].notna().sum() >= 5]
     if not cols:
         return _empty_fig("Sem dados para o período", h=280)
 
+    df = dados[["timestamp"] + cols].copy()
+    df["_mes"] = df["timestamp"].dt.to_period("M").astype(str)
+    df["_label"] = df["timestamp"].dt.strftime("%b/%y")
+
+    monthly = (
+        df.groupby(["_mes", "_label"])[cols]
+        .mean()
+        .reset_index()
+        .sort_values("_mes")
+    )
+    meses = monthly["_label"].tolist()
+    subtitle = f"{len(meses)} mês" if len(meses) == 1 else f"{len(meses)} meses"
+
     fig = go.Figure()
     for i, p in enumerate(cols):
         cor = P["lines"][i % len(P["lines"])]
-        fig.add_trace(go.Box(
-            y=dados[p].dropna(), name=p[:25],
-            marker_color=cor, line_color=cor,
-            boxmean="sd",
-            hovertemplate="<b>" + p + "</b><br>%{y:.3f}<extra></extra>",
+        vals = monthly[p].round(3)
+        fig.add_trace(go.Bar(
+            name=p[:28],
+            x=meses,
+            y=vals,
+            marker_color=cor,
+            opacity=0.85,
+            hovertemplate=f"<b>{p}</b><br>%{{x}}: <b>%{{y:.3f}}</b><extra></extra>",
         ))
+
     fig.update_layout(
         template="plotly_white",
         paper_bgcolor=P["card"], plot_bgcolor=P["plot"], font=dict(color=P["text"]),
         height=280,
-        margin=dict(l=54, r=18, t=28, b=60),
-        showlegend=False,
-        xaxis=dict(tickfont=dict(size=9, color="#CBD5E1"), tickangle=-30,
-                   linecolor="rgba(0,212,255,0.2)"),
+        barmode="group",
+        margin=dict(l=54, r=18, t=36, b=50),
+        legend=dict(orientation="h", y=1.13, x=0, font=dict(size=9, color=P["text"])),
+        title=dict(text=subtitle, font=dict(size=10, color=P["muted2"]), x=0.99, xanchor="right"),
+        xaxis=dict(tickfont=dict(size=11, color="#CBD5E1"), linecolor="rgba(0,212,255,0.2)"),
         yaxis=dict(gridcolor="rgba(0,212,255,0.1)", tickfont=dict(size=10, color="#E2E8F0"),
                    linecolor="rgba(0,212,255,0.2)"),
     )
@@ -1665,7 +1773,7 @@ def criar_app() -> Dash:
         dcc.Store(id="pkg"),
         dcc.Store(id="tab", data="processo"),
         dcc.Store(id="limites-store",  data=_carregar_limites()),
-        dcc.Store(id="tipo-grafico",   data="serie"),
+        dcc.Store(id="tipo-grafico",   data="diaria"),
         dcc.Store(id="tipo-qual",      data="scatter"),
         dcc.Store(id="pq-snapshot",    data=None),
         dcc.Download(id="download-pdf"),
@@ -1745,7 +1853,8 @@ def criar_app() -> Dash:
                     section("Tendência dos parâmetros",
                         # seletor de tipo de gráfico
                         html.Div(style={"display": "flex", "gap": "6px", "marginBottom": "12px"}, children=[
-                            html.Button("Série temporal",   id="btn-tipo-serie",   className="tab-btn on", n_clicks=0),
+                            html.Button("Média diária",     id="btn-tipo-diaria",  className="tab-btn on", n_clicks=0),
+                            html.Button("Série temporal",   id="btn-tipo-serie",   className="tab-btn",    n_clicks=0),
                             html.Button("Scatter matrix",   id="btn-tipo-scatter", className="tab-btn",    n_clicks=0),
                             html.Button("Cross-correlação", id="btn-tipo-cross",   className="tab-btn",    n_clicks=0),
                         ]),
@@ -1789,7 +1898,7 @@ def criar_app() -> Dash:
                                   figure=_empty_fig("Selecione parâmetros para visualizar", 360)),
                     ),
 
-                    section("Distribuição no período",
+                    section("Médias mensais — comparativo",
                         dcc.Graph(id="g-box", config={"displayModeBar": False},
                                   figure=_empty_fig("Selecione parâmetros", 280)),
                     ),
@@ -2497,16 +2606,18 @@ def criar_app() -> Dash:
         fim_s  = dados["timestamp"].iloc[-1].strftime("%d/%m %H:%M")
         c_info = f"{ini_s} → {fim_s}  ·  {n:,} registros  ·  {len(params)} parâmetros".replace(",",".")
 
-        tipo = tipo or "serie"
+        tipo = tipo or "diaria"
         if tipo == "scatter":
             g = fig_scatter_matrix(dados, params)
         elif tipo == "cross":
             p1 = params[0] if params else None
             g  = fig_crosscorr(dados, p1, p2)
+        elif tipo == "diaria":
+            g = fig_media_diaria(dados, params, paradas)
         else:
             g = fig_trend(dados, params, medias, paradas, outliers, limites or {})
 
-        return g, fig_corr(dados, params), fig_stats(dados, params), c_info
+        return g, fig_corr(dados, params), fig_medias_mensais(dados, params), c_info
 
     # ── abas de alertas ───────────────────────────────────────────────────
     @callback(
@@ -2873,9 +2984,21 @@ def criar_app() -> Dash:
             }),
         ])
 
-        # top 3 por duração
-        if col_dur and not dd_reais.empty:
-            top3 = dd_reais.nlargest(3, col_dur)
+        # top 3 por duração — filtrado pelo mês com mais dados recentes
+        now_utc = pd.Timestamp.now(tz="UTC")
+        mes_label_top3 = "—"
+        if col_dur and col_ini and not dd_reais.empty:
+            dd_ts = pd.to_datetime(dd_reais[col_ini], utc=True)
+            periodo_mes = dd_ts.dt.to_period("M")
+            mes_atual_p = now_utc.to_period("M")
+            dd_mes = dd_reais[periodo_mes == mes_atual_p]
+            if dd_mes.empty:
+                ultimo_mes = periodo_mes.max()
+                dd_mes = dd_reais[periodo_mes == ultimo_mes]
+                mes_label_top3 = str(ultimo_mes.strftime("%b/%Y"))
+            else:
+                mes_label_top3 = str(mes_atual_p.strftime("%b/%Y"))
+            top3 = dd_mes.nlargest(3, col_dur)
         else:
             top3 = pd.DataFrame()
 
@@ -2883,37 +3006,64 @@ def criar_app() -> Dash:
         rank_labels = ["1°", "2°", "3°"]
         top3_rows = []
         for i, (_, r) in enumerate(top3.iterrows()):
-            dur_v  = float(r.get(col_dur) or 0)
-            ini_v  = r.get(col_ini) if col_ini else None
-            tipo_v = _str(r.get("Tipo")) or _str(r.get("Causa")) or "—"
-            cls_v  = _str(r.get("Classe"))
-            cls_lb = cls_v.split("-")[0].strip() if "-" in cls_v else cls_v
-            cor    = P["crit"] if "MCR" in cls_v else P["warn"] if "PME" in cls_v else P["muted2"]
+            dur_v   = float(r.get(col_dur) or 0)
+            ini_v   = r.get(col_ini) if col_ini else None
+            tipo_v  = _str(r.get("Tipo")) or "—"
+            causa_v = _str(r.get("Causa")) or ""
+            cls_v   = _str(r.get("Classe"))
+            cls_lb  = cls_v.split("-")[0].strip() if "-" in cls_v else cls_v
+            maq_v   = _str(r.get("Máquina") or "")
+            cor     = P["crit"] if "MCR" in cls_v else P["warn"] if "PME" in cls_v else P["muted2"]
             try:
-                data_v = pd.Timestamp(ini_v).strftime("%d/%m") if pd.notna(ini_v) else "—"
+                data_v = pd.Timestamp(ini_v).strftime("%d/%m %H:%M") if pd.notna(ini_v) else "—"
             except Exception:
                 data_v = "—"
+
+            linha2 = []
+            if causa_v:
+                linha2.append(html.Div(causa_v[:130], style={
+                    "marginTop": "3px", "paddingLeft": "30px",
+                    "fontSize": "0.72rem", "color": P["muted2"],
+                    "whiteSpace": "normal", "lineHeight": "1.35",
+                }))
+            if maq_v and maq_v.upper() not in ("", "TR", "AT1"):
+                linha2.append(html.Div(f"Máquina: {maq_v}", style={
+                    "paddingLeft": "30px", "fontSize": "0.7rem",
+                    "color": P["muted2"], "marginTop": "2px",
+                }))
+
             top3_rows.append(html.Div(style={
-                "display": "flex", "alignItems": "center", "gap": "8px",
-                "padding": "6px 4px", "borderBottom": f"1px solid {P['border']}",
-                "fontSize": "0.8rem",
+                "padding": "7px 4px",
+                "borderBottom": f"1px solid {P['border']}",
             }, children=[
-                html.Span(rank_labels[i], style={
-                    "fontWeight": "700", "color": rank_colors[i],
-                    "minWidth": "22px", "fontSize": "0.85rem",
-                }),
-                badge(cls_lb, cor),
-                html.Span(tipo_v[:48], style={"flex": "1", "overflow": "hidden",
-                          "textOverflow": "ellipsis", "whiteSpace": "nowrap"}),
-                html.Span(data_v, style={"color": P["muted2"], "fontSize": "0.75rem",
-                          "whiteSpace": "nowrap"}),
-                html.Span(f"{dur_v:.0f} min", style={
-                    "fontWeight": "700", "color": cor,
-                    "minWidth": "52px", "textAlign": "right",
-                }),
+                html.Div(style={
+                    "display": "flex", "alignItems": "center", "gap": "8px",
+                    "fontSize": "0.8rem",
+                }, children=[
+                    html.Span(rank_labels[i], style={
+                        "fontWeight": "700", "color": rank_colors[i],
+                        "minWidth": "22px", "fontSize": "0.85rem",
+                    }),
+                    badge(cls_lb, cor),
+                    html.Span(tipo_v[:44], style={"flex": "1", "overflow": "hidden",
+                              "textOverflow": "ellipsis", "whiteSpace": "nowrap",
+                              "fontWeight": "600"}),
+                    html.Span(data_v, style={"color": P["muted2"], "fontSize": "0.75rem",
+                              "whiteSpace": "nowrap"}),
+                    html.Span(f"{dur_v:.0f} min", style={
+                        "fontWeight": "700", "color": cor,
+                        "minWidth": "52px", "textAlign": "right",
+                    }),
+                ]),
+                *linha2,
             ]))
 
-        top3_content = [barra_sem] + (top3_rows or [html.Div("Sem dados.", className="empty")])
+        mes_header = html.Div(mes_label_top3, style={
+            "fontSize": "0.72rem", "color": P["accent"], "fontWeight": "600",
+            "padding": "3px 4px 6px", "borderBottom": f"1px solid {P['border']}",
+            "textTransform": "uppercase", "letterSpacing": "0.06em",
+        })
+        top3_content = [barra_sem, mes_header] + (top3_rows or [html.Div("Sem paradas no período.", className="empty")])
 
         return (*kpis, g_pareto, g_semanal, lista_crit, lista_lmp, top3_content)
 
@@ -3023,18 +3173,21 @@ def criar_app() -> Dash:
     # ── tipo de gráfico — processo ────────────────────────────────────────
     @callback(
         Output("tipo-grafico",     "data"),
+        Output("btn-tipo-diaria",  "className"),
         Output("btn-tipo-serie",   "className"),
         Output("btn-tipo-scatter", "className"),
         Output("btn-tipo-cross",   "className"),
+        Input("btn-tipo-diaria",   "n_clicks"),
         Input("btn-tipo-serie",    "n_clicks"),
         Input("btn-tipo-scatter",  "n_clicks"),
         Input("btn-tipo-cross",    "n_clicks"),
     )
     def toggle_tipo_grafico(*_):
-        mapa = {"btn-tipo-serie": "serie", "btn-tipo-scatter": "scatter", "btn-tipo-cross": "cross"}
-        ativo = mapa.get(ctx.triggered_id, "serie")
+        mapa = {"btn-tipo-diaria": "diaria", "btn-tipo-serie": "serie",
+                "btn-tipo-scatter": "scatter", "btn-tipo-cross": "cross"}
+        ativo = mapa.get(ctx.triggered_id, "diaria")
         cls   = lambda k: "tab-btn on" if mapa.get(k) == ativo else "tab-btn"
-        return ativo, cls("btn-tipo-serie"), cls("btn-tipo-scatter"), cls("btn-tipo-cross")
+        return ativo, cls("btn-tipo-diaria"), cls("btn-tipo-serie"), cls("btn-tipo-scatter"), cls("btn-tipo-cross")
 
     @callback(
         Output("crosscorr-opts", "style"),
