@@ -983,6 +983,84 @@ def fig_conformidade_produto(conf: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def fig_media_por_produto(conf: pd.DataFrame, param: str) -> go.Figure:
+    """Barras horizontais: média do parâmetro por produto, com ±1σ e linhas de spec."""
+    if conf.empty or "parametro" not in conf.columns:
+        return _empty_fig("Selecione um parâmetro", 280)
+    df = conf[conf["parametro"] == param].copy()
+    if df.empty or "Familia" not in df.columns:
+        return _empty_fig(f"Sem dados para {param}", 280)
+
+    grp = df.groupby("Familia")["valor"].agg(["mean", "std", "count"]).reset_index()
+    grp = grp.sort_values("mean", ascending=True)
+    grp["std"] = grp["std"].fillna(0)
+
+    lse  = df["LSE"].dropna().iloc[0]  if "LSE"  in df and df["LSE"].notna().any()  else None
+    lsc  = df["LSC"].dropna().iloc[0]  if "LSC"  in df and df["LSC"].notna().any()  else None
+    meta = df["Meta"].dropna().iloc[0] if "Meta" in df and df["Meta"].notna().any() else None
+
+    cores = []
+    for _, r in grp.iterrows():
+        m = r["mean"]
+        if lse is not None and m > lse:
+            cores.append(P["crit"])
+        elif lsc is not None and m < lsc:
+            cores.append(P["warn"])
+        else:
+            cores.append(P["ok"])
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=grp["mean"].round(3),
+        y=grp["Familia"],
+        orientation="h",
+        error_x=dict(type="data", array=grp["std"].round(3), visible=True,
+                     color="rgba(255,255,255,0.25)", thickness=1.5),
+        marker_color=cores,
+        opacity=0.88,
+        customdata=list(zip(grp["count"], grp["std"].round(3))),
+        hovertemplate=(
+            "<b>%{y}</b><br>"
+            f"Média {param}: <b>%{{x:.3f}}</b><br>"
+            "n=%{customdata[0]}  σ=%{customdata[1]}"
+            "<extra></extra>"
+        ),
+    ))
+
+    media_geral = df["valor"].mean()
+    fig.add_vline(x=media_geral, line=dict(color=P["accent"], width=1.5, dash="dot"),
+                  annotation_text=f"Geral {media_geral:.3f}",
+                  annotation_font=dict(size=9, color=P["accent"]),
+                  annotation_position="top right")
+    if lse is not None:
+        fig.add_vline(x=lse, line=dict(color=P["crit"], width=1.2, dash="dash"),
+                      annotation_text=f"LSE {lse:.3f}",
+                      annotation_font=dict(size=9, color=P["crit"]),
+                      annotation_position="top left")
+    if lsc is not None:
+        fig.add_vline(x=lsc, line=dict(color=P["warn"], width=1.2, dash="dash"),
+                      annotation_text=f"LSC {lsc:.3f}",
+                      annotation_font=dict(size=9, color=P["warn"]),
+                      annotation_position="bottom left")
+    if meta is not None:
+        fig.add_vline(x=meta, line=dict(color=P["ok"], width=1, dash="dot"),
+                      annotation_text=f"Meta {meta:.3f}",
+                      annotation_font=dict(size=9, color=P["ok"]),
+                      annotation_position="top right")
+
+    fig.update_layout(
+        template="plotly_white",
+        paper_bgcolor=P["card"], plot_bgcolor=P["plot"], font=dict(color=P["text"]),
+        height=max(220, len(grp) * 36 + 60),
+        margin=dict(l=10, r=90, t=28, b=40),
+        showlegend=False,
+        xaxis=dict(gridcolor="rgba(0,212,255,0.1)", tickfont=dict(size=10, color="#E2E8F0"),
+                   title=dict(text=param, font=dict(size=10, color=P["muted2"]))),
+        yaxis=dict(tickfont=dict(size=11, color=P["text"])),
+    )
+    return fig
+
+
 def fig_pareto_valores(conf: pd.DataFrame, param: str) -> go.Figure:
     """Pareto de resultado × quantidade: cada valor arredondado = uma barra, sorted por freq."""
     if conf.empty or "parametro" not in conf.columns:
@@ -2002,7 +2080,7 @@ def criar_app() -> Dash:
                                   figure=_empty_fig("Carregando...", 430)),
                     ),
 
-                    section("Conformidade por produto",
+                    section("Média por produto",
                         dcc.Graph(id="g-conf-produto", config={"displayModeBar": False},
                                   figure=_empty_fig("Carregando...", 280)),
                     ),
@@ -2795,7 +2873,7 @@ def criar_app() -> Dash:
             else:
                 g_param = empty
                 g_pareto = empty_pareto
-            g_conf = fig_conformidade_produto(conf)
+            g_conf = fig_media_por_produto(conf, param) if param else fig_conformidade_produto(conf)
 
             # resumo textual
             resumo_items = []
@@ -2987,20 +3065,23 @@ def criar_app() -> Dash:
         # top 3 por duração — filtrado pelo mês com mais dados recentes
         now_utc = pd.Timestamp.now(tz="UTC")
         mes_label_top3 = "—"
-        if col_dur and col_ini and not dd_reais.empty:
-            dd_ts = pd.to_datetime(dd_reais[col_ini], utc=True)
-            periodo_mes = dd_ts.dt.to_period("M")
-            mes_atual_p = now_utc.to_period("M")
-            dd_mes = dd_reais[periodo_mes == mes_atual_p]
-            if dd_mes.empty:
-                ultimo_mes = periodo_mes.max()
-                dd_mes = dd_reais[periodo_mes == ultimo_mes]
-                mes_label_top3 = str(ultimo_mes.strftime("%b/%Y"))
+        try:
+            if col_dur and col_ini and not dd_reais.empty:
+                dd_ts    = pd.to_datetime(dd_reais[col_ini], utc=True)
+                dd_ts_ym = dd_ts.dt.strftime("%Y-%m")   # evita to_period() em tz-aware
+                mes_atual_ym = now_utc.strftime("%Y-%m")
+                dd_mes = dd_reais[dd_ts_ym == mes_atual_ym]
+                if dd_mes.empty:
+                    ultimo_ym = dd_ts_ym.max()
+                    dd_mes = dd_reais[dd_ts_ym == ultimo_ym]
+                    mes_label_top3 = pd.Timestamp(ultimo_ym + "-01").strftime("%b/%Y")
+                else:
+                    mes_label_top3 = now_utc.strftime("%b/%Y")
+                top3 = dd_mes.nlargest(3, col_dur)
             else:
-                mes_label_top3 = str(mes_atual_p.strftime("%b/%Y"))
-            top3 = dd_mes.nlargest(3, col_dur)
-        else:
-            top3 = pd.DataFrame()
+                top3 = pd.DataFrame()
+        except Exception:
+            top3 = dd_reais.nlargest(3, col_dur) if col_dur and not dd_reais.empty else pd.DataFrame()
 
         rank_colors = [P["crit"], P["warn"], P["muted2"]]
         rank_labels = ["1°", "2°", "3°"]
