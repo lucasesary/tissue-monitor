@@ -3016,14 +3016,16 @@ def criar_app() -> Dash:
         sort_col = col_dur if col_dur and col_dur in dd_reais.columns else None
         df_sorted = dd_reais.sort_values(sort_col, ascending=False) if sort_col else dd_reais
 
+        _MAX_ROWS = 60
         rows_crit, rows_lmp = [], []
         for _, r in df_sorted.iterrows():
             cls = str(r.get("Classe",""))
-            row = _compact_row(r)
             if _is_lmp(cls):
-                rows_lmp.append(row)
+                if len(rows_lmp) < _MAX_ROWS:
+                    rows_lmp.append(_compact_row(r))
             else:
-                rows_crit.append(row)
+                if len(rows_crit) < _MAX_ROWS:
+                    rows_crit.append(_compact_row(r))
 
         mask_lmp  = dd_reais["Classe"].apply(_is_lmp) if "Classe" in dd_reais.columns else pd.Series(False, index=dd_reais.index)
         dur_crit  = dd_reais.loc[~mask_lmp, col_dur].sum() if col_dur else 0
