@@ -110,6 +110,30 @@ def pareto_downtime(incluir_hayout: bool = False):  # type: ignore[assignment]
     grp.attrs["pct_sem_preench_occ"] = round(sp_occ / total_occ * 100, 1) if total_occ else 0
     return grp
 
+def _calc_pareto_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Calcula DataFrame de pareto a partir de qualquer subset de downtime."""
+    if df.empty or "Tipo" not in df.columns or "Duração em Minutos" not in df.columns:
+        return pd.DataFrame()
+    df = df.copy()
+    df["Tipo"] = df["Tipo"].fillna("").str.strip().replace("", "SEM PREENCHIMENTO")
+    grp_cols = [c for c in ["Tipo", "Classe"] if c in df.columns]
+    grp = (
+        df.groupby(grp_cols)["Duração em Minutos"]
+        .agg(total_min="sum", ocorrencias="count")
+        .reset_index()
+        .sort_values("total_min", ascending=False)
+    )
+    total     = grp["total_min"].sum()
+    total_occ = len(df)
+    grp["pct_acumulado"] = (grp["total_min"].cumsum() / total * 100).round(1) if total else 0.0
+    grp["sem_preench"]   = grp["Tipo"] == "SEM PREENCHIMENTO"
+    sp_min = df.loc[df["Tipo"] == "SEM PREENCHIMENTO", "Duração em Minutos"].sum()
+    sp_occ = (df["Tipo"] == "SEM PREENCHIMENTO").sum()
+    grp.attrs["pct_sem_preench_min"] = round(sp_min / total * 100, 1) if total else 0
+    grp.attrs["pct_sem_preench_occ"] = round(sp_occ / total_occ * 100, 1) if total_occ else 0
+    return grp
+
+
 _DB_PROC = "__db__"  # valor especial para "carregar dados do banco"
 
 # ── cache em memória (TTL 5 min) para reduzir round-trips ao Neon ─────────
@@ -1264,6 +1288,57 @@ def fig_producao_downtime_semanal(dq: pd.DataFrame, dd: pd.DataFrame) -> go.Figu
     return fig
 
 
+def fig_downtime_diario(dd: pd.DataFrame) -> go.Figure:
+    """Barras de downtime por dia com linhas de meta."""
+    col_ini = next((c for c in dd.columns if c.lower().replace("í","i").startswith("ini")), None)
+    col_dur = next((c for c in dd.columns if "ura" in c.lower() and "min" in c.lower()), None)
+    if dd.empty or not col_ini or not col_dur:
+        return _empty_fig("Sem dados de downtime", 360)
+
+    dd2 = dd.copy()
+    dd2["_dia"] = pd.to_datetime(dd2[col_ini], utc=True).dt.floor("D")
+    dt = dd2.groupby("_dia")[col_dur].sum().reset_index()
+    dt.columns = ["dia", "downtime_min"]
+
+    cores = [
+        P["ok"]   if v <= _META_DT_DES else
+        P["warn"] if v <= _META_DT_MIN  else P["crit"]
+        for v in dt["downtime_min"]
+    ]
+    labels = [d.strftime("%d/%m") for d in dt["dia"]]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name="Downtime/dia", x=labels, y=dt["downtime_min"],
+        marker_color=cores, opacity=0.85,
+        hovertemplate="<b>%{x}</b><br>Downtime: <b>%{y:.0f} min</b><extra></extra>",
+        text=[f"{v:.0f}" for v in dt["downtime_min"]],
+        textposition="outside", textfont=dict(size=9, color=P["muted2"]),
+    ))
+    fig.add_hline(y=_META_DT_MIN, line=dict(color=P["warn"], dash="dot", width=1.5),
+                  annotation_text=f"Meta {_META_DT_MIN:.0f} min/dia",
+                  annotation_font=dict(size=9, color=P["warn"]),
+                  annotation_position="top right")
+    fig.add_hline(y=_META_DT_DES, line=dict(color=P["crit"], dash="dot", width=1.2),
+                  annotation_text=f"Desafio {_META_DT_DES:.0f} min/dia",
+                  annotation_font=dict(size=9, color=P["crit"]),
+                  annotation_position="top left")
+
+    fig.update_layout(
+        template="plotly_white",
+        paper_bgcolor=P["card"], plot_bgcolor=P["plot"], font=dict(color=P["text"]),
+        height=360,
+        margin=dict(l=60, r=20, t=36, b=50),
+        showlegend=False,
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#0F1524", font_size=11, font_color="#FFFFFF", bordercolor="#00D4FF"),
+        xaxis=dict(tickfont=dict(size=10, color=P["text"]), tickangle=-30),
+        yaxis=dict(title="Downtime (min)", gridcolor=P["border"],
+                   tickfont=dict(size=10, color="#CBD5E1")),
+    )
+    return fig
+
+
 def fig_pareto_downtime(pareto: pd.DataFrame) -> go.Figure:
     """Gráfico de Pareto de downtime com destaque para SEM PREENCHIMENTO."""
     if pareto.empty:
@@ -1304,7 +1379,7 @@ def fig_pareto_downtime(pareto: pd.DataFrame) -> go.Figure:
     fig.add_hline(y=80, yref="y2", line=dict(color=P["crit"], dash="dot", width=1),
                   annotation_text="80%", annotation_font=dict(size=9, color=P["crit"]))
 
-    titulo = "Pareto de causas — maio/26"
+    titulo = "Pareto de causas"
     if pct_sp_min > 0:
         titulo += f"  |  ⚠ Sem preenchimento: {pct_sp_occ}% das ocorrências · {pct_sp_min}% do tempo"
 
@@ -1853,6 +1928,7 @@ def criar_app() -> Dash:
         dcc.Store(id="limites-store",  data=_carregar_limites()),
         dcc.Store(id="tipo-grafico",   data="diaria"),
         dcc.Store(id="tipo-qual",      data="scatter"),
+        dcc.Store(id="dt-visao",       data="semanal"),
         dcc.Store(id="pq-snapshot",    data=None),
         dcc.Download(id="download-pdf"),
 
@@ -2127,7 +2203,11 @@ def criar_app() -> Dash:
 
             html.Div(style={"display": "flex", "flexDirection": "column", "gap": "14px"}, children=[
 
-                section("Produção × Downtime — visão semanal",
+                section("Produção × Downtime",
+                    html.Div(style={"display": "flex", "gap": "6px", "marginBottom": "10px"}, children=[
+                        html.Button("Semanal", id="btn-dt-semanal", className="tab-btn on", n_clicks=0),
+                        html.Button("Diário",  id="btn-dt-diario",  className="tab-btn",    n_clicks=0),
+                    ]),
                     dcc.Graph(id="g-dt-semanal", config={"displayModeBar": False},
                               figure=_empty_fig("Carregando...", 360)),
                 ),
@@ -2930,6 +3010,19 @@ def criar_app() -> Dash:
             print(f"[QUALIDADE] ERRO:\n{traceback.format_exc()}", flush=True)
             return vz, vz, vz, vz, vz, empty, empty, f"Erro: {e}", [], opts_vazio, empty_pareto
 
+    # ── toggle semanal / diário ───────────────────────────────────────────
+    @callback(
+        Output("dt-visao",       "data"),
+        Output("btn-dt-semanal", "className"),
+        Output("btn-dt-diario",  "className"),
+        Input("btn-dt-semanal",  "n_clicks"),
+        Input("btn-dt-diario",   "n_clicks"),
+    )
+    def toggle_dt_visao(*_):
+        ativo = "diario" if ctx.triggered_id == "btn-dt-diario" else "semanal"
+        return ativo, ("tab-btn on" if ativo == "semanal" else "tab-btn"), \
+                      ("tab-btn on" if ativo == "diario"  else "tab-btn")
+
     # ── aba downtime ──────────────────────────────────────────────────────
     @callback(
         Output("dk0", "children"), Output("dk1", "children"),
@@ -2943,8 +3036,9 @@ def criar_app() -> Dash:
         Output("sel-dt-mes",       "options"),
         Input("nav-ativa",         "data"),
         Input("sel-dt-mes",        "value"),
+        Input("dt-visao",          "data"),
     )
-    def aba_downtime(nav_ativa, mes_sel):
+    def aba_downtime(nav_ativa, mes_sel, dt_visao):
         vz      = kpi_card("—", "—")
         empty   = _empty_fig("Sem dados", 320)
         opts_vz = [{"label": "Todos", "value": "__todos__"}]
@@ -2963,6 +3057,7 @@ def criar_app() -> Dash:
         if dd.empty:
             msg = html.Div("Sem dados de downtime.", className="empty")
             return vz, vz, vz, vz, vz, empty, empty, msg, msg, msg, opts_vz
+
 
         col_ini = next((c for c in dd.columns if c.lower().replace("í","i").startswith("ini")), None)
         col_dur = next((c for c in dd.columns if "ura" in c.lower() and "min" in c.lower()), None)
@@ -3008,26 +3103,15 @@ def criar_app() -> Dash:
             kpi_card("Classes",              str(len(classes_reais)),    "tipos",         P["muted2"]),
         )
 
-        # pareto: recalcula sobre o subset quando mês filtrado
-        if mes_sel and mes_sel != "__todos__" and not dd_reais.empty and "Tipo" in dd_reais.columns and col_dur:
-            _df_p = dd_reais.copy()
-            _df_p["Tipo"] = _df_p["Tipo"].fillna("").str.strip().replace("", "SEM PREENCHIMENTO")
-            _grp_cols = [c for c in ["Tipo", "Classe"] if c in _df_p.columns]
-            _grp = (
-                _df_p.groupby(_grp_cols)[col_dur]
-                .agg(total_min="sum", ocorrencias="count")
-                .reset_index()
-                .sort_values("total_min", ascending=False)
-            )
-            _tot = _grp["total_min"].sum()
-            _grp["pct_acumulado"] = (_grp["total_min"].cumsum() / _tot * 100).round(1) if _tot else 0.0
-            _grp["sem_preench"] = _grp["Tipo"] == "SEM PREENCHIMENTO"
-            pareto_fig_data = _grp
-        else:
-            pareto_fig_data = pareto
+        # pareto sempre calculado do subset filtrado
+        pareto_fig_data = _calc_pareto_df(dd_reais) if (mes_sel and mes_sel != "__todos__") else pareto
+        g_pareto = fig_pareto_downtime(pareto_fig_data)
 
-        g_pareto  = fig_pareto_downtime(pareto_fig_data)
-        g_semanal = fig_producao_downtime_semanal(dq, dd_reais)
+        # gráfico semanal ou diário conforme toggle
+        if dt_visao == "diario":
+            g_semanal = fig_downtime_diario(dd_reais)
+        else:
+            g_semanal = fig_producao_downtime_semanal(dq, dd_reais)
 
         _LMP_CLASSES = {"LMP", "LIMP", "LIMPEZA"}
 
