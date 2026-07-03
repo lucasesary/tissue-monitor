@@ -369,7 +369,10 @@ def _dt_flat(raw: pd.DataFrame) -> pd.DataFrame:
         "Máquina":            df[col_maq].astype(str).str.strip() if col_maq else _AT1_MAQUINA,
     })
     out = out.dropna(subset=["Início", "Duração em Minutos"])
-    return out[out["Duração em Minutos"] > 0].reset_index(drop=True)
+    out = out[out["Duração em Minutos"] > 0]
+    # filtra apenas AT1 (Máquina TR) — arquivo pode conter dados de outras máquinas (R1, R2)
+    out = out[out["Máquina"] == _AT1_MAQUINA]
+    return out.reset_index(drop=True)
 
 
 def carregar_downtime(caminho: Path | None = None) -> pd.DataFrame:

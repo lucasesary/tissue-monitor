@@ -301,7 +301,7 @@ def carregar_downtime_db(dias: int = 60) -> pd.DataFrame:
     with _conn() as con:
         df = pd.read_sql(
             "SELECT inicio, classe, tipo, causa, duracao_minutos, maquina "
-            "FROM downtime WHERE inicio >= %s ORDER BY inicio",
+            "FROM downtime WHERE inicio >= %s AND maquina = 'TR' ORDER BY inicio",
             con, params=(desde,)
         )
     if not df.empty:
