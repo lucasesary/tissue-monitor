@@ -2112,6 +2112,19 @@ def criar_app() -> Dash:
                 html.Div(id="dk3"), html.Div(id="dk4"),
             ]),
 
+            html.Div(style={"display": "flex", "alignItems": "center", "gap": "10px",
+                            "padding": "6px 0 10px 0"}, children=[
+                html.Span("Mês:", style={"fontSize": "0.8rem", "fontWeight": 600,
+                                         "color": P["muted2"], "whiteSpace": "nowrap"}),
+                dcc.Dropdown(
+                    id="sel-dt-mes",
+                    options=[{"label": "Todos", "value": "__todos__"}],
+                    value="__todos__",
+                    clearable=False,
+                    style={"fontSize": "13px", "minWidth": "160px", "background": P["surf"]},
+                ),
+            ]),
+
             html.Div(style={"display": "flex", "flexDirection": "column", "gap": "14px"}, children=[
 
                 section("Produção × Downtime — visão semanal",
@@ -2927,12 +2940,14 @@ def criar_app() -> Dash:
         Output("dt-lista-criticas","children"),
         Output("dt-lista-lmp",     "children"),
         Output("dt-top3",          "children"),
+        Output("sel-dt-mes",       "options"),
         Input("nav-ativa",         "data"),
+        Input("sel-dt-mes",        "value"),
     )
-    def aba_downtime(nav_ativa):
-        vz    = kpi_card("—", "—")
-        empty = _empty_fig("Sem dados", 320)
-        sem   = html.Div("—", className="empty")
+    def aba_downtime(nav_ativa, mes_sel):
+        vz      = kpi_card("—", "—")
+        empty   = _empty_fig("Sem dados", 320)
+        opts_vz = [{"label": "Todos", "value": "__todos__"}]
         if nav_ativa != "downtime":
             raise PreventUpdate
 
@@ -2943,14 +2958,33 @@ def criar_app() -> Dash:
             dq, _    = _cached("qual",     carregar_qualidade)
         except Exception as e:
             err = html.Div(f"Erro: {e}", className="empty")
-            return vz, vz, vz, vz, vz, empty, empty, err, err, err
+            return vz, vz, vz, vz, vz, empty, empty, err, err, err, opts_vz
 
         if dd.empty:
             msg = html.Div("Sem dados de downtime.", className="empty")
-            return vz, vz, vz, vz, vz, empty, empty, msg, msg, msg
+            return vz, vz, vz, vz, vz, empty, empty, msg, msg, msg, opts_vz
 
         col_ini = next((c for c in dd.columns if c.lower().replace("í","i").startswith("ini")), None)
         col_dur = next((c for c in dd.columns if "ura" in c.lower() and "min" in c.lower()), None)
+
+        # ── opções de mês ────────────────────────────────────────────────
+        if col_ini and not dd[col_ini].isna().all():
+            _ts = pd.to_datetime(dd[col_ini], utc=True)
+            _ym = _ts.dt.strftime("%Y-%m")
+            meses_disp = sorted(_ym.dropna().unique(), reverse=True)
+            mes_opts = [{"label": "Todos", "value": "__todos__"}] + [
+                {"label": pd.Timestamp(m + "-01").strftime("%b/%Y"), "value": m}
+                for m in meses_disp
+            ]
+        else:
+            mes_opts = opts_vz
+
+        # ── filtro por mês selecionado ───────────────────────────────────
+        if mes_sel and mes_sel != "__todos__" and col_ini:
+            _ts_full  = pd.to_datetime(dd[col_ini],      utc=True).dt.strftime("%Y-%m")
+            _ts_reais = pd.to_datetime(dd_reais[col_ini], utc=True).dt.strftime("%Y-%m")
+            dd       = dd[_ts_full  == mes_sel].copy()
+            dd_reais = dd_reais[_ts_reais == mes_sel].copy()
 
         total_min = dd_reais[col_dur].sum() if col_dur else 0
         n_eventos = len(dd_reais)
@@ -2974,7 +3008,25 @@ def criar_app() -> Dash:
             kpi_card("Classes",              str(len(classes_reais)),    "tipos",         P["muted2"]),
         )
 
-        g_pareto  = fig_pareto_downtime(pareto)
+        # pareto: recalcula sobre o subset quando mês filtrado
+        if mes_sel and mes_sel != "__todos__" and not dd_reais.empty and "Tipo" in dd_reais.columns and col_dur:
+            _df_p = dd_reais.copy()
+            _df_p["Tipo"] = _df_p["Tipo"].fillna("").str.strip().replace("", "SEM PREENCHIMENTO")
+            _grp_cols = [c for c in ["Tipo", "Classe"] if c in _df_p.columns]
+            _grp = (
+                _df_p.groupby(_grp_cols)[col_dur]
+                .agg(total_min="sum", ocorrencias="count")
+                .reset_index()
+                .sort_values("total_min", ascending=False)
+            )
+            _tot = _grp["total_min"].sum()
+            _grp["pct_acumulado"] = (_grp["total_min"].cumsum() / _tot * 100).round(1) if _tot else 0.0
+            _grp["sem_preench"] = _grp["Tipo"] == "SEM PREENCHIMENTO"
+            pareto_fig_data = _grp
+        else:
+            pareto_fig_data = pareto
+
+        g_pareto  = fig_pareto_downtime(pareto_fig_data)
         g_semanal = fig_producao_downtime_semanal(dq, dd_reais)
 
         _LMP_CLASSES = {"LMP", "LIMP", "LIMPEZA"}
@@ -3148,7 +3200,7 @@ def criar_app() -> Dash:
         })
         top3_content = [barra_sem, mes_header] + (top3_rows or [html.Div("Sem paradas no período.", className="empty")])
 
-        return (*kpis, g_pareto, g_semanal, lista_crit, lista_lmp, top3_content)
+        return (*kpis, g_pareto, g_semanal, lista_crit, lista_lmp, top3_content, mes_opts)
 
     # ── aba P×Q ───────────────────────────────────────────────────────────
     @callback(
