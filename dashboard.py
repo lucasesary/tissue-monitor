@@ -1989,16 +1989,22 @@ def criar_app() -> Dash:
                             "fontSize": "0.8rem", "color": P["accent"],
                             "marginBottom": "10px", "fontWeight": 600,
                         }),
-                        dcc.DatePickerRange(
-                            id="proc-date-range",
-                            display_format="DD/MM/YYYY",
-                            start_date_placeholder_text="Data inicial",
-                            end_date_placeholder_text="Data final",
-                            minimum_nights=0,
-                            style={"marginBottom": "10px"},
-                        ),
                         html.Div(style={"display": "flex", "alignItems": "center",
-                                        "gap": "10px", "marginTop": "6px"}, children=[
+                                        "gap": "8px", "marginBottom": "10px"}, children=[
+                            dcc.Input(id="proc-date-ini", type="date",
+                                      style={"background": P["surf"], "color": P["text"],
+                                             "border": f"1px solid {P['border']}", "borderRadius": "6px",
+                                             "padding": "4px 8px", "fontSize": "0.83rem",
+                                             "colorScheme": "dark", "width": "136px"}),
+                            html.Span("→", style={"color": P["muted2"], "fontSize": "0.9rem"}),
+                            dcc.Input(id="proc-date-fim", type="date",
+                                      style={"background": P["surf"], "color": P["text"],
+                                             "border": f"1px solid {P['border']}", "borderRadius": "6px",
+                                             "padding": "4px 8px", "fontSize": "0.83rem",
+                                             "colorScheme": "dark", "width": "136px"}),
+                        ]),
+                        html.Div(style={"display": "flex", "alignItems": "center",
+                                        "gap": "10px", "marginTop": "2px"}, children=[
                             html.Span("Das", style={"fontSize": "0.78rem", "color": P["muted2"]}),
                             dcc.Input(
                                 id="proc-time-ini", type="time", value="00:00",
@@ -2154,14 +2160,17 @@ def criar_app() -> Dash:
                 ),
                 html.Span("Período:", style={"fontSize": "0.8rem", "fontWeight": 600,
                                              "color": P["muted2"], "whiteSpace": "nowrap"}),
-                dcc.DatePickerRange(
-                    id="qual-date-range",
-                    display_format="DD/MM/YYYY",
-                    start_date_placeholder_text="Data inicial",
-                    end_date_placeholder_text="Data final",
-                    minimum_nights=0,
-                    clearable=True,
-                ),
+                dcc.Input(id="qual-date-ini", type="date",
+                          style={"background": P["surf"], "color": P["text"],
+                                 "border": f"1px solid {P['border']}", "borderRadius": "6px",
+                                 "padding": "4px 8px", "fontSize": "0.83rem",
+                                 "colorScheme": "dark", "width": "136px"}),
+                html.Span("→", style={"color": P["muted2"], "fontSize": "0.9rem"}),
+                dcc.Input(id="qual-date-fim", type="date",
+                          style={"background": P["surf"], "color": P["text"],
+                                 "border": f"1px solid {P['border']}", "borderRadius": "6px",
+                                 "padding": "4px 8px", "fontSize": "0.83rem",
+                                 "colorScheme": "dark", "width": "136px"}),
             ]),
 
             html.Div(className="main-grid", children=[
@@ -2220,14 +2229,17 @@ def criar_app() -> Dash:
                             "padding": "6px 0 10px 0"}, children=[
                 html.Span("Período:", style={"fontSize": "0.8rem", "fontWeight": 600,
                                              "color": P["muted2"], "whiteSpace": "nowrap"}),
-                dcc.DatePickerRange(
-                    id="dt-date-range",
-                    display_format="DD/MM/YYYY",
-                    start_date_placeholder_text="Data inicial",
-                    end_date_placeholder_text="Data final",
-                    minimum_nights=0,
-                    clearable=True,
-                ),
+                dcc.Input(id="dt-date-ini", type="date",
+                          style={"background": P["surf"], "color": P["text"],
+                                 "border": f"1px solid {P['border']}", "borderRadius": "6px",
+                                 "padding": "4px 8px", "fontSize": "0.83rem",
+                                 "colorScheme": "dark", "width": "136px"}),
+                html.Span("→", style={"color": P["muted2"], "fontSize": "0.9rem"}),
+                dcc.Input(id="dt-date-fim", type="date",
+                          style={"background": P["surf"], "color": P["text"],
+                                 "border": f"1px solid {P['border']}", "borderRadius": "6px",
+                                 "padding": "4px 8px", "fontSize": "0.83rem",
+                                 "colorScheme": "dark", "width": "136px"}),
             ]),
 
             html.Div(style={"display": "flex", "flexDirection": "column", "gap": "14px"}, children=[
@@ -2286,14 +2298,17 @@ def criar_app() -> Dash:
                             "padding": "6px 0 4px 0"}, children=[
                 html.Span("Período:", style={"fontSize": "0.8rem", "fontWeight": 600,
                                              "color": P["muted2"], "whiteSpace": "nowrap"}),
-                dcc.DatePickerRange(
-                    id="pq-date-range",
-                    display_format="DD/MM/YYYY",
-                    start_date_placeholder_text="Data inicial",
-                    end_date_placeholder_text="Data final",
-                    minimum_nights=0,
-                    clearable=True,
-                ),
+                dcc.Input(id="pq-date-ini", type="date",
+                          style={"background": P["surf"], "color": P["text"],
+                                 "border": f"1px solid {P['border']}", "borderRadius": "6px",
+                                 "padding": "4px 8px", "fontSize": "0.83rem",
+                                 "colorScheme": "dark", "width": "136px"}),
+                html.Span("→", style={"color": P["muted2"], "fontSize": "0.9rem"}),
+                dcc.Input(id="pq-date-fim", type="date",
+                          style={"background": P["surf"], "color": P["text"],
+                                 "border": f"1px solid {P['border']}", "borderRadius": "6px",
+                                 "padding": "4px 8px", "fontSize": "0.83rem",
+                                 "colorScheme": "dark", "width": "136px"}),
             ]),
 
             html.Div(style={"display": "flex", "gap": "10px", "alignItems": "center",
@@ -2425,14 +2440,17 @@ def criar_app() -> Dash:
                             "padding": "6px 0 10px 0"}, children=[
                 html.Span("Período:", style={"fontSize": "0.8rem", "fontWeight": 600,
                                              "color": P["muted2"], "whiteSpace": "nowrap"}),
-                dcc.DatePickerRange(
-                    id="yk-date-range",
-                    display_format="DD/MM/YYYY",
-                    start_date_placeholder_text="Data inicial",
-                    end_date_placeholder_text="Data final",
-                    minimum_nights=0,
-                    clearable=True,
-                ),
+                dcc.Input(id="yk-date-ini", type="date",
+                          style={"background": P["surf"], "color": P["text"],
+                                 "border": f"1px solid {P['border']}", "borderRadius": "6px",
+                                 "padding": "4px 8px", "fontSize": "0.83rem",
+                                 "colorScheme": "dark", "width": "136px"}),
+                html.Span("→", style={"color": P["muted2"], "fontSize": "0.9rem"}),
+                dcc.Input(id="yk-date-fim", type="date",
+                          style={"background": P["surf"], "color": P["text"],
+                                 "border": f"1px solid {P['border']}", "borderRadius": "6px",
+                                 "padding": "4px 8px", "fontSize": "0.83rem",
+                                 "colorScheme": "dark", "width": "136px"}),
             ]),
 
             html.Div(style={"display": "grid", "gridTemplateColumns": "420px 1fr",
@@ -2723,18 +2741,16 @@ def criar_app() -> Dash:
         Output("sel",              "options"),
         Output("sel",              "value"),
         Output("crosscorr-p2",    "options"),
-        Output("proc-date-range", "min_date_allowed"),
-        Output("proc-date-range", "max_date_allowed"),
-        Output("proc-date-range", "start_date"),
-        Output("proc-date-range", "end_date"),
-        Output("proc-time-ini",   "value"),
-        Output("proc-time-fim",   "value"),
+        Output("proc-date-ini",  "value"),
+        Output("proc-date-fim",  "value"),
+        Output("proc-time-ini",  "value"),
+        Output("proc-time-fim",  "value"),
         Input("pkg", "data"),
     )
     def kpis(pkg):
         vz = kpi_card("—", "—")
         if not pkg:
-            return vz, vz, vz, vz, vz, [], [], [], None, None, None, None, "00:00", "23:59"
+            return vz, vz, vz, vz, vz, [], [], [], None, None, "00:00", "23:59"
         opts = [{"label": p, "value": p} for p in pkg["params"]]
         d_ini = datetime.fromtimestamp(pkg["ts_min"]).strftime("%Y-%m-%d")
         d_fim = datetime.fromtimestamp(pkg["ts_max"]).strftime("%Y-%m-%d")
@@ -2750,16 +2766,16 @@ def criar_app() -> Dash:
             opts,
             pkg["default"],
             opts,
-            d_ini, d_fim, d_ini, d_fim, t_ini, t_fim,
+            d_ini, d_fim, t_ini, t_fim,
         )
 
     # ── atualiza label do slider ──────────────────────────────────────────
     @callback(
         Output("slider-periodo-label", "children"),
-        Input("proc-date-range", "start_date"),
-        Input("proc-date-range", "end_date"),
-        Input("proc-time-ini",   "value"),
-        Input("proc-time-fim",   "value"),
+        Input("proc-date-ini", "value"),
+        Input("proc-date-fim", "value"),
+        Input("proc-time-ini", "value"),
+        Input("proc-time-fim", "value"),
     )
     def label_periodo(start_date, end_date, t_ini, t_fim):
         if not start_date or not end_date:
@@ -2795,15 +2811,15 @@ def criar_app() -> Dash:
         Output("g-corr",    "figure"),
         Output("g-box",     "figure"),
         Output("corr-info", "children"),
-        Input("sel",             "value"),
-        Input("proc-date-range", "start_date"),
-        Input("proc-date-range", "end_date"),
-        Input("proc-time-ini",   "value"),
-        Input("proc-time-fim",   "value"),
-        Input("limites-store",   "data"),
-        Input("tipo-grafico",    "data"),
-        Input("crosscorr-p2",    "value"),
-        State("pkg",             "data"),
+        Input("sel",           "value"),
+        Input("proc-date-ini", "value"),
+        Input("proc-date-fim", "value"),
+        Input("proc-time-ini", "value"),
+        Input("proc-time-fim", "value"),
+        Input("limites-store", "data"),
+        Input("tipo-grafico",  "data"),
+        Input("crosscorr-p2",  "value"),
+        State("pkg",           "data"),
     )
     def graficos(params, start_date, end_date, t_ini, t_fim, limites, tipo, p2, pkg):
         empty_t = _empty_fig("Selecione parâmetros para visualizar", 360)
@@ -2974,8 +2990,8 @@ def criar_app() -> Dash:
         Input("sel-qual-param",     "value"),
         Input("tipo-qual",          "data"),
         Input("sel-qual-produto",   "value"),
-        Input("qual-date-range",    "start_date"),
-        Input("qual-date-range",    "end_date"),
+        Input("qual-date-ini", "value"),
+        Input("qual-date-fim", "value"),
     )
     def aba_qualidade(nav_ativa, param, tipo_qual, produto_sel, q_ini, q_fim):
         if nav_ativa != "qualidade":
@@ -3113,8 +3129,8 @@ def criar_app() -> Dash:
         Output("dt-lista-lmp",     "children"),
         Output("dt-top3",          "children"),
         Input("nav-ativa",         "data"),
-        Input("dt-date-range",     "start_date"),
-        Input("dt-date-range",     "end_date"),
+        Input("dt-date-ini", "value"),
+        Input("dt-date-fim", "value"),
         Input("dt-visao",          "data"),
     )
     def aba_downtime(nav_ativa, dt_ini, dt_fim, dt_visao):
@@ -3370,9 +3386,9 @@ def criar_app() -> Dash:
         Output("pq-inf-quebras",    "children"),
         Output("pq-snapshot",      "data"),
         Input("nav-ativa",         "data"),
-        Input("pq-date-range",     "start_date"),
-        Input("pq-date-range",     "end_date"),
-        State("pkg",               "data"),
+        Input("pq-date-ini", "value"),
+        Input("pq-date-fim", "value"),
+        State("pkg",         "data"),
     )
     def aba_pq(nav_ativa, pq_ini, pq_fim, pkg):
         vz    = kpi_card("—", "—")
@@ -3456,9 +3472,9 @@ def criar_app() -> Dash:
         Input("pq-sel-var",    "value"),
         Input("pq-sel-target", "value"),
         Input("nav-ativa",     "data"),
-        State("pq-date-range", "start_date"),
-        State("pq-date-range", "end_date"),
-        State("pkg",           "data"),
+        State("pq-date-ini", "value"),
+        State("pq-date-fim", "value"),
+        State("pkg",         "data"),
     )
     def scatter_pq(var_proc, target, nav_ativa, pq_ini, pq_fim, pkg):
         if nav_ativa != "pq" or not var_proc or not target or not pkg:
@@ -3649,8 +3665,8 @@ def criar_app() -> Dash:
         Output("yankee-lista",  "children"),
         Input("nav-ativa",      "data"),
         Input("yt-btn",         "n_clicks"),
-        Input("yk-date-range",  "start_date"),
-        Input("yk-date-range",  "end_date"),
+        Input("yk-date-ini", "value"),
+        Input("yk-date-fim", "value"),
     )
     def aba_yankee(nav_ativa, _btn, yk_ini, yk_fim):
         vz    = kpi_card("—", "—")
