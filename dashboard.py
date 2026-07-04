@@ -1368,6 +1368,100 @@ def fig_downtime_diario(dd_oper: pd.DataFrame, dd_mcr: "pd.DataFrame | None" = N
     return fig
 
 
+def fig_corr_dt(dp: pd.DataFrame, dd_oper: pd.DataFrame,
+                var: str = "producao", freq: str = "dia") -> go.Figure:
+    """Barras de variável de produção + linha de downtime operacional (dual Y)."""
+    _BRT = "America/Sao_Paulo"
+    if dp.empty:
+        return _empty_fig("Sem dados de produção", 360)
+
+    dp2 = dp.copy()
+    dp2["Data"] = pd.to_datetime(dp2["Data"], utc=True).dt.tz_convert(_BRT).dt.tz_localize(None)
+
+    if freq == "mes":
+        dp2["_per"] = dp2["Data"].dt.to_period("M").dt.to_timestamp()
+        fmt = "%b/%Y"
+    else:
+        dp2["_per"] = dp2["Data"].dt.floor("D")
+        fmt = "%d/%m"
+
+    if var == "emendas" and "Quebras" in dp2.columns:
+        agg = dp2.groupby("_per")["Quebras"].sum().reset_index()
+        agg.columns = ["periodo", "valor"]
+        y_label   = "Emendas (Quebras)"
+        bar_color = P["lines"][1]
+    elif var == "velocidade" and "Velocidade" in dp2.columns:
+        agg = dp2.groupby("_per")["Velocidade"].mean().reset_index()
+        agg.columns = ["periodo", "valor"]
+        y_label   = "Velocidade média (m/min)"
+        bar_color = P["lines"][2]
+    else:
+        agg = dp2.groupby("_per").size().reset_index(name="valor")
+        agg.columns = ["periodo", "valor"]
+        y_label   = "Jumbos produzidos"
+        bar_color = P["accent"]
+
+    col_ini = next((c for c in dd_oper.columns if c.lower().replace("í","i").startswith("ini")), None)
+    col_dur = next((c for c in dd_oper.columns if "ura" in c.lower() and "min" in c.lower()), None)
+
+    if not dd_oper.empty and col_ini and col_dur:
+        dd2 = dd_oper[dd_oper[col_dur] > 0].copy()
+        dd2["_per"] = (pd.to_datetime(dd2[col_ini], utc=True)
+                       .dt.tz_convert(_BRT).dt.tz_localize(None))
+        if freq == "mes":
+            dd2["_per"] = dd2["_per"].dt.to_period("M").dt.to_timestamp()
+        else:
+            dd2["_per"] = dd2["_per"].dt.floor("D")
+        agg_dt = dd2.groupby("_per")[col_dur].sum().reset_index()
+        agg_dt.columns = ["periodo", "downtime_min"]
+    else:
+        agg_dt = pd.DataFrame(columns=["periodo", "downtime_min"])
+
+    merged = (agg.merge(agg_dt, on="periodo", how="outer")
+              .sort_values("periodo").fillna(0))
+    if merged.empty:
+        return _empty_fig("Sem dados no período", 360)
+
+    labels = [d.strftime(fmt) if hasattr(d, "strftime") else str(d)
+              for d in merged["periodo"]]
+    cores_dt = [
+        P["ok"]   if v <= _META_DT_DES else
+        P["warn"] if v <= _META_DT_MIN  else P["crit"]
+        for v in merged["downtime_min"]
+    ]
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(go.Bar(
+        name=y_label, x=labels, y=merged["valor"],
+        marker_color=bar_color, opacity=0.8,
+        hovertemplate=f"<b>%{{x}}</b><br>{y_label}: <b>%{{y:.1f}}</b><extra></extra>",
+    ), secondary_y=False)
+    fig.add_trace(go.Scatter(
+        name="Downtime oper. (min)", x=labels, y=merged["downtime_min"],
+        mode="lines+markers",
+        line=dict(color=P["crit"], width=2),
+        marker=dict(size=7, color=cores_dt, line=dict(color=P["crit"], width=1.5)),
+        hovertemplate="<b>%{x}</b><br>Downtime: <b>%{y:.0f} min</b><extra></extra>",
+    ), secondary_y=True)
+    fig.update_layout(
+        template="plotly_white",
+        paper_bgcolor=P["card"], plot_bgcolor=P["plot"],
+        font=dict(color=P["text"]),
+        height=360, barmode="group",
+        margin=dict(l=60, r=70, t=40, b=50),
+        legend=dict(orientation="h", y=1.10, x=0, font=dict(size=10, color=P["text"])),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#0F1524", font_size=11,
+                        font_color="#FFFFFF", bordercolor="#00D4FF"),
+        xaxis=dict(tickfont=dict(size=10, color=P["text"]), tickangle=-30),
+    )
+    fig.update_yaxes(title_text=y_label, gridcolor=P["border"],
+                     tickfont=dict(size=10, color="#CBD5E1"), secondary_y=False)
+    fig.update_yaxes(title_text="Downtime (min)", gridcolor=P["border"],
+                     tickfont=dict(size=10, color=P["crit"]), secondary_y=True)
+    return fig
+
+
 def fig_pareto_downtime(pareto: pd.DataFrame) -> go.Figure:
     """Gráfico de Pareto de downtime com destaque para SEM PREENCHIMENTO."""
     if pareto.empty:
@@ -2291,6 +2385,29 @@ def criar_app() -> Dash:
                     ]),
                 ]),
             ]),
+
+            section("Correlação — Variável × Downtime",
+                html.Div(style={"display": "flex", "gap": "8px", "marginBottom": "10px",
+                                "alignItems": "center", "flexWrap": "wrap"}, children=[
+                    dcc.Dropdown(
+                        id="sel-dt-corr-var",
+                        options=[
+                            {"label": "Produção (jumbos)", "value": "producao"},
+                            {"label": "Emendas (Quebras)", "value": "emendas"},
+                            {"label": "Velocidade média",  "value": "velocidade"},
+                        ],
+                        value="producao",
+                        clearable=False,
+                        style={"fontSize": "13px", "minWidth": "180px",
+                               "background": P["surf"]},
+                    ),
+                    html.Button("Diário", id="btn-dtc-dia", className="tab-btn on", n_clicks=0),
+                    html.Button("Mensal", id="btn-dtc-mes", className="tab-btn",    n_clicks=0),
+                    dcc.Store(id="dt-corr-freq", data="dia"),
+                ]),
+                dcc.Graph(id="g-dt-corr", config={"displayModeBar": False},
+                          figure=_empty_fig("Carregando...", 360)),
+            ),
         ]),
 
         # ══ ABA PROCESSO × QUALIDADE ══════════════════════════════════════
@@ -3123,6 +3240,51 @@ def criar_app() -> Dash:
     def toggle_dt_mcr(n, atual):
         novo = not bool(atual)
         return novo, ("tab-btn on" if novo else "tab-btn")
+
+    @callback(
+        Output("dt-corr-freq",  "data"),
+        Output("btn-dtc-dia",   "className"),
+        Output("btn-dtc-mes",   "className"),
+        Input("btn-dtc-dia",    "n_clicks"),
+        Input("btn-dtc-mes",    "n_clicks"),
+    )
+    def toggle_dt_corr_freq(*_):
+        ativo = "mes" if ctx.triggered_id == "btn-dtc-mes" else "dia"
+        return (ativo,
+                "tab-btn on" if ativo == "dia" else "tab-btn",
+                "tab-btn on" if ativo == "mes" else "tab-btn")
+
+    @callback(
+        Output("g-dt-corr",      "figure"),
+        Input("nav-ativa",        "data"),
+        Input("sel-dt-corr-var",  "value"),
+        Input("dt-corr-freq",     "data"),
+        State("dt-date-ini",      "value"),
+        State("dt-date-fim",      "value"),
+    )
+    def aba_downtime_corr(nav_ativa, var, freq, dt_ini, dt_fim):
+        if nav_ativa != "downtime":
+            raise PreventUpdate
+        try:
+            dp       = _cached("prod",    carregar_producao)
+            dd_reais = _cached("dt_real", lambda: carregar_downtime_paradas(incluir_hayout=False))
+        except Exception as e:
+            return _empty_fig(f"Erro: {e}", 360)
+
+        col_ini = next((c for c in dd_reais.columns
+                        if c.lower().replace("í","i").startswith("ini")), None)
+        if dt_ini and dt_fim and col_ini and not dd_reais.empty:
+            ts_ini = pd.Timestamp(dt_ini)
+            ts_fim = pd.Timestamp(dt_fim) + pd.Timedelta(days=1)
+            _ts = pd.to_datetime(dd_reais[col_ini], utc=True).dt.tz_localize(None)
+            dd_reais = dd_reais[(_ts >= ts_ini) & (_ts <= ts_fim)].copy()
+
+        if "Classe" in dd_reais.columns:
+            dd_oper = dd_reais[~dd_reais["Classe"].str.contains("MCR", na=False)].copy()
+        else:
+            dd_oper = dd_reais.copy()
+
+        return fig_corr_dt(dp, dd_oper, var or "producao", freq or "dia")
 
     # ── aba downtime ──────────────────────────────────────────────────────
     @callback(
