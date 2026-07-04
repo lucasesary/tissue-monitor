@@ -1987,20 +1987,38 @@ def criar_app() -> Dash:
                     section("Período de análise",
                         html.Div(id="slider-periodo-label", style={
                             "fontSize": "0.8rem", "color": P["accent"],
-                            "marginBottom": "12px", "fontWeight": 600,
+                            "marginBottom": "10px", "fontWeight": 600,
                         }),
-                        dcc.RangeSlider(
-                            id="slider-periodo",
-                            min=0, max=1, value=[0, 1],
-                            step=None, marks={},
-                            tooltip={"placement": "bottom", "always_visible": False},
-                            allowCross=False,
+                        dcc.DatePickerRange(
+                            id="proc-date-range",
+                            display_format="DD/MM/YYYY",
+                            start_date_placeholder_text="Data inicial",
+                            end_date_placeholder_text="Data final",
+                            minimum_nights=0,
+                            style={"marginBottom": "10px"},
                         ),
-                        html.Div(style={"marginTop": "8px", "display": "flex",
-                                        "justifyContent": "space-between",
-                                        "fontSize": "0.72rem", "color": P["muted2"]}, children=[
-                            html.Span(id="slider-label-ini"),
-                            html.Span(id="slider-label-fim"),
+                        html.Div(style={"display": "flex", "alignItems": "center",
+                                        "gap": "10px", "marginTop": "6px"}, children=[
+                            html.Span("Das", style={"fontSize": "0.78rem", "color": P["muted2"]}),
+                            dcc.Input(
+                                id="proc-time-ini", type="time", value="00:00",
+                                style={
+                                    "background": P["surf"], "color": P["text"],
+                                    "border": f"1px solid {P['border']}",
+                                    "borderRadius": "6px", "padding": "5px 8px",
+                                    "fontSize": "0.85rem", "width": "105px",
+                                },
+                            ),
+                            html.Span("até", style={"fontSize": "0.78rem", "color": P["muted2"]}),
+                            dcc.Input(
+                                id="proc-time-fim", type="time", value="23:59",
+                                style={
+                                    "background": P["surf"], "color": P["text"],
+                                    "border": f"1px solid {P['border']}",
+                                    "borderRadius": "6px", "padding": "5px 8px",
+                                    "fontSize": "0.85rem", "width": "105px",
+                                },
+                            ),
                         ]),
                     ),
 
@@ -2123,8 +2141,8 @@ def criar_app() -> Dash:
                 html.Div(id="qk3"), html.Div(id="qk4"),
             ]),
 
-            html.Div(style={"display": "flex", "alignItems": "center", "gap": "10px",
-                            "padding": "6px 0 10px 0"}, children=[
+            html.Div(style={"display": "flex", "alignItems": "center", "gap": "14px",
+                            "padding": "6px 0 10px 0", "flexWrap": "wrap"}, children=[
                 html.Span("Produto:", style={"fontSize": "0.8rem", "fontWeight": 600,
                                               "color": P["muted2"], "whiteSpace": "nowrap"}),
                 dcc.Dropdown(
@@ -2133,6 +2151,16 @@ def criar_app() -> Dash:
                     value="__todos__",
                     clearable=False,
                     style={"fontSize": "13px", "minWidth": "260px", "background": P["surf"]},
+                ),
+                html.Span("Período:", style={"fontSize": "0.8rem", "fontWeight": 600,
+                                             "color": P["muted2"], "whiteSpace": "nowrap"}),
+                dcc.DatePickerRange(
+                    id="qual-date-range",
+                    display_format="DD/MM/YYYY",
+                    start_date_placeholder_text="Data inicial",
+                    end_date_placeholder_text="Data final",
+                    minimum_nights=0,
+                    clearable=True,
                 ),
             ]),
 
@@ -2188,16 +2216,17 @@ def criar_app() -> Dash:
                 html.Div(id="dk3"), html.Div(id="dk4"),
             ]),
 
-            html.Div(style={"display": "flex", "alignItems": "center", "gap": "10px",
+            html.Div(style={"display": "flex", "alignItems": "center", "gap": "12px",
                             "padding": "6px 0 10px 0"}, children=[
-                html.Span("Mês:", style={"fontSize": "0.8rem", "fontWeight": 600,
-                                         "color": P["muted2"], "whiteSpace": "nowrap"}),
-                dcc.Dropdown(
-                    id="sel-dt-mes",
-                    options=[{"label": "Todos", "value": "__todos__"}],
-                    value="__todos__",
-                    clearable=False,
-                    style={"fontSize": "13px", "minWidth": "160px", "background": P["surf"]},
+                html.Span("Período:", style={"fontSize": "0.8rem", "fontWeight": 600,
+                                             "color": P["muted2"], "whiteSpace": "nowrap"}),
+                dcc.DatePickerRange(
+                    id="dt-date-range",
+                    display_format="DD/MM/YYYY",
+                    start_date_placeholder_text="Data inicial",
+                    end_date_placeholder_text="Data final",
+                    minimum_nights=0,
+                    clearable=True,
                 ),
             ]),
 
@@ -2251,6 +2280,20 @@ def criar_app() -> Dash:
             html.Div(className="kpi-row", children=[
                 html.Div(id="pqk0"), html.Div(id="pqk1"),
                 html.Div(id="pqk2"), html.Div(id="pqk3"), html.Div(id="pqk4"),
+            ]),
+
+            html.Div(style={"display": "flex", "alignItems": "center", "gap": "12px",
+                            "padding": "6px 0 4px 0"}, children=[
+                html.Span("Período:", style={"fontSize": "0.8rem", "fontWeight": 600,
+                                             "color": P["muted2"], "whiteSpace": "nowrap"}),
+                dcc.DatePickerRange(
+                    id="pq-date-range",
+                    display_format="DD/MM/YYYY",
+                    start_date_placeholder_text="Data inicial",
+                    end_date_placeholder_text="Data final",
+                    minimum_nights=0,
+                    clearable=True,
+                ),
             ]),
 
             html.Div(style={"display": "flex", "gap": "10px", "alignItems": "center",
@@ -2376,6 +2419,20 @@ def criar_app() -> Dash:
             html.Div(className="kpi-row", children=[
                 html.Div(id="yk0"), html.Div(id="yk1"),
                 html.Div(id="yk2"), html.Div(id="yk3"), html.Div(id="yk4"),
+            ]),
+
+            html.Div(style={"display": "flex", "alignItems": "center", "gap": "12px",
+                            "padding": "6px 0 10px 0"}, children=[
+                html.Span("Período:", style={"fontSize": "0.8rem", "fontWeight": 600,
+                                             "color": P["muted2"], "whiteSpace": "nowrap"}),
+                dcc.DatePickerRange(
+                    id="yk-date-range",
+                    display_format="DD/MM/YYYY",
+                    start_date_placeholder_text="Data inicial",
+                    end_date_placeholder_text="Data final",
+                    minimum_nights=0,
+                    clearable=True,
+                ),
             ]),
 
             html.Div(style={"display": "grid", "gridTemplateColumns": "420px 1fr",
@@ -2666,18 +2723,23 @@ def criar_app() -> Dash:
         Output("sel",              "options"),
         Output("sel",              "value"),
         Output("crosscorr-p2",    "options"),
-        Output("slider-periodo",  "min"),
-        Output("slider-periodo",  "max"),
-        Output("slider-periodo",  "value"),
-        Output("slider-periodo",  "marks"),
+        Output("proc-date-range", "min_date_allowed"),
+        Output("proc-date-range", "max_date_allowed"),
+        Output("proc-date-range", "start_date"),
+        Output("proc-date-range", "end_date"),
+        Output("proc-time-ini",   "value"),
+        Output("proc-time-fim",   "value"),
         Input("pkg", "data"),
     )
     def kpis(pkg):
         vz = kpi_card("—", "—")
         if not pkg:
-            return vz, vz, vz, vz, vz, [], [], [], 0, 1, [0, 1], {}
+            return vz, vz, vz, vz, vz, [], [], [], None, None, None, None, "00:00", "23:59"
         opts = [{"label": p, "value": p} for p in pkg["params"]]
-        tmin, tmax = pkg["ts_min"], pkg["ts_max"]
+        d_ini = datetime.fromtimestamp(pkg["ts_min"]).strftime("%Y-%m-%d")
+        d_fim = datetime.fromtimestamp(pkg["ts_max"]).strftime("%Y-%m-%d")
+        t_ini = datetime.fromtimestamp(pkg["ts_min"]).strftime("%H:%M")
+        t_fim = datetime.fromtimestamp(pkg["ts_max"]).strftime("%H:%M")
         return (
             kpi_card("Período", pkg["periodo_ini"], pkg["periodo_fim"], P["accent"]),
             kpi_card("Registros", f"{pkg['registros']:,}".replace(",","."), "leituras", P["accent2"]),
@@ -2688,25 +2750,31 @@ def criar_app() -> Dash:
             opts,
             pkg["default"],
             opts,
-            tmin, tmax,
-            [tmin, tmax],
-            pkg["slider_marks"],
+            d_ini, d_fim, d_ini, d_fim, t_ini, t_fim,
         )
 
     # ── atualiza label do slider ──────────────────────────────────────────
     @callback(
         Output("slider-periodo-label", "children"),
-        Output("slider-label-ini",     "children"),
-        Output("slider-label-fim",     "children"),
-        Input("slider-periodo", "value"),
+        Input("proc-date-range", "start_date"),
+        Input("proc-date-range", "end_date"),
+        Input("proc-time-ini",   "value"),
+        Input("proc-time-fim",   "value"),
     )
-    def label_slider(val):
-        if not val or len(val) < 2:
-            return "", "", ""
-        ini = datetime.fromtimestamp(val[0]).strftime("%d/%m/%Y %H:%M")
-        fim = datetime.fromtimestamp(val[1]).strftime("%d/%m/%Y %H:%M")
-        duracao = (val[1] - val[0]) / 3600
-        return f"{ini}  →  {fim}  ({duracao:.1f}h)", ini, fim
+    def label_periodo(start_date, end_date, t_ini, t_fim):
+        if not start_date or not end_date:
+            return ""
+        t_ini = t_ini or "00:00"
+        t_fim = t_fim or "23:59"
+        ini = pd.Timestamp(start_date).strftime("%d/%m/%Y") + f" {t_ini}"
+        fim = pd.Timestamp(end_date).strftime("%d/%m/%Y") + f" {t_fim}"
+        try:
+            h_ini = pd.Timestamp(f"{start_date} {t_ini}")
+            h_fim = pd.Timestamp(f"{end_date} {t_fim}")
+            duracao = max(0.0, (h_fim - h_ini).total_seconds() / 3600)
+            return f"{ini}  →  {fim}  ({duracao:.1f}h)"
+        except Exception:
+            return f"{ini}  →  {fim}"
 
     # ── info do seletor de parâmetros ─────────────────────────────────────
     @callback(
@@ -2727,14 +2795,17 @@ def criar_app() -> Dash:
         Output("g-corr",    "figure"),
         Output("g-box",     "figure"),
         Output("corr-info", "children"),
-        Input("sel",            "value"),
-        Input("slider-periodo", "value"),
-        Input("limites-store",  "data"),
-        Input("tipo-grafico",   "data"),
-        Input("crosscorr-p2",   "value"),
-        State("pkg",            "data"),
+        Input("sel",             "value"),
+        Input("proc-date-range", "start_date"),
+        Input("proc-date-range", "end_date"),
+        Input("proc-time-ini",   "value"),
+        Input("proc-time-fim",   "value"),
+        Input("limites-store",   "data"),
+        Input("tipo-grafico",    "data"),
+        Input("crosscorr-p2",    "value"),
+        State("pkg",             "data"),
     )
-    def graficos(params, periodo, limites, tipo, p2, pkg):
+    def graficos(params, start_date, end_date, t_ini, t_fim, limites, tipo, p2, pkg):
         empty_t = _empty_fig("Selecione parâmetros para visualizar", 360)
         empty_c = _empty_fig("Selecione 2+ parâmetros", 380)
         empty_b = _empty_fig("Selecione parâmetros", 280)
@@ -2755,10 +2826,10 @@ def criar_app() -> Dash:
         if not outliers.empty:
             outliers["timestamp"] = pd.to_datetime(outliers["timestamp"])
 
-        # filtra pelo slider
-        if periodo and len(periodo) == 2:
-            ts_ini = pd.Timestamp(periodo[0], unit="s")
-            ts_fim = pd.Timestamp(periodo[1], unit="s")
+        # filtra pelo período selecionado
+        if start_date and end_date:
+            ts_ini = pd.Timestamp(f"{start_date} {t_ini or '00:00'}")
+            ts_fim = pd.Timestamp(f"{end_date} {t_fim or '23:59'}")
             mask   = (dados["timestamp"] >= ts_ini) & (dados["timestamp"] <= ts_fim)
             dados  = dados[mask].reset_index(drop=True)
             if not outliers.empty:
@@ -2903,8 +2974,10 @@ def criar_app() -> Dash:
         Input("sel-qual-param",     "value"),
         Input("tipo-qual",          "data"),
         Input("sel-qual-produto",   "value"),
+        Input("qual-date-range",    "start_date"),
+        Input("qual-date-range",    "end_date"),
     )
-    def aba_qualidade(nav_ativa, param, tipo_qual, produto_sel):
+    def aba_qualidade(nav_ativa, param, tipo_qual, produto_sel, q_ini, q_fim):
         if nav_ativa != "qualidade":
             raise PreventUpdate
 
@@ -2933,6 +3006,12 @@ def criar_app() -> Dash:
             dq_f = dq
             if produto_sel and produto_sel != "__todos__" and col_prod:
                 dq_f = dq[dq[col_prod] == produto_sel].copy()
+
+            # filtrar por período selecionado
+            if q_ini and q_fim and "Data" in dq_f.columns:
+                ts_ini = pd.Timestamp(q_ini)
+                ts_fim = pd.Timestamp(q_fim) + pd.Timedelta(days=1)
+                dq_f = dq_f[(dq_f["Data"] >= ts_ini) & (dq_f["Data"] <= ts_fim)].copy()
 
             conf = resumo_conformidade(dq_f, specs)
 
@@ -3033,15 +3112,14 @@ def criar_app() -> Dash:
         Output("dt-lista-criticas","children"),
         Output("dt-lista-lmp",     "children"),
         Output("dt-top3",          "children"),
-        Output("sel-dt-mes",       "options"),
         Input("nav-ativa",         "data"),
-        Input("sel-dt-mes",        "value"),
+        Input("dt-date-range",     "start_date"),
+        Input("dt-date-range",     "end_date"),
         Input("dt-visao",          "data"),
     )
-    def aba_downtime(nav_ativa, mes_sel, dt_visao):
+    def aba_downtime(nav_ativa, dt_ini, dt_fim, dt_visao):
         vz      = kpi_card("—", "—")
         empty   = _empty_fig("Sem dados", 320)
-        opts_vz = [{"label": "Todos", "value": "__todos__"}]
         if nav_ativa != "downtime":
             raise PreventUpdate
 
@@ -3052,34 +3130,24 @@ def criar_app() -> Dash:
             dq, _    = _cached("qual",     carregar_qualidade)
         except Exception as e:
             err = html.Div(f"Erro: {e}", className="empty")
-            return vz, vz, vz, vz, vz, empty, empty, err, err, err, opts_vz
+            return vz, vz, vz, vz, vz, empty, empty, err, err, err
 
         if dd.empty:
             msg = html.Div("Sem dados de downtime.", className="empty")
-            return vz, vz, vz, vz, vz, empty, empty, msg, msg, msg, opts_vz
+            return vz, vz, vz, vz, vz, empty, empty, msg, msg, msg
 
 
         col_ini = next((c for c in dd.columns if c.lower().replace("í","i").startswith("ini")), None)
         col_dur = next((c for c in dd.columns if "ura" in c.lower() and "min" in c.lower()), None)
 
-        # ── opções de mês ────────────────────────────────────────────────
-        if col_ini and not dd[col_ini].isna().all():
-            _ts = pd.to_datetime(dd[col_ini], utc=True)
-            _ym = _ts.dt.strftime("%Y-%m")
-            meses_disp = sorted(_ym.dropna().unique(), reverse=True)
-            mes_opts = [{"label": "Todos", "value": "__todos__"}] + [
-                {"label": pd.Timestamp(m + "-01").strftime("%b/%Y"), "value": m}
-                for m in meses_disp
-            ]
-        else:
-            mes_opts = opts_vz
-
-        # ── filtro por mês selecionado ───────────────────────────────────
-        if mes_sel and mes_sel != "__todos__" and col_ini:
-            _ts_full  = pd.to_datetime(dd[col_ini],      utc=True).dt.strftime("%Y-%m")
-            _ts_reais = pd.to_datetime(dd_reais[col_ini], utc=True).dt.strftime("%Y-%m")
-            dd       = dd[_ts_full  == mes_sel].copy()
-            dd_reais = dd_reais[_ts_reais == mes_sel].copy()
+        # ── filtro por período selecionado ───────────────────────────────
+        if dt_ini and dt_fim and col_ini:
+            ts_ini = pd.Timestamp(dt_ini)
+            ts_fim = pd.Timestamp(dt_fim) + pd.Timedelta(days=1)
+            _ts_f = pd.to_datetime(dd[col_ini],       utc=True).dt.tz_localize(None)
+            _ts_r = pd.to_datetime(dd_reais[col_ini], utc=True).dt.tz_localize(None)
+            dd       = dd[(_ts_f >= ts_ini) & (_ts_f <= ts_fim)].copy()
+            dd_reais = dd_reais[(_ts_r >= ts_ini) & (_ts_r <= ts_fim)].copy()
 
         total_min = dd_reais[col_dur].sum() if col_dur else 0
         n_eventos = len(dd_reais)
@@ -3104,7 +3172,7 @@ def criar_app() -> Dash:
         )
 
         # pareto sempre calculado do subset filtrado
-        pareto_fig_data = _calc_pareto_df(dd_reais) if (mes_sel and mes_sel != "__todos__") else pareto
+        pareto_fig_data = _calc_pareto_df(dd_reais) if (dt_ini and dt_fim) else pareto
         g_pareto = fig_pareto_downtime(pareto_fig_data)
 
         # gráfico semanal ou diário conforme toggle
@@ -3284,7 +3352,7 @@ def criar_app() -> Dash:
         })
         top3_content = [barra_sem, mes_header] + (top3_rows or [html.Div("Sem paradas no período.", className="empty")])
 
-        return (*kpis, g_pareto, g_semanal, lista_crit, lista_lmp, top3_content, mes_opts)
+        return (*kpis, g_pareto, g_semanal, lista_crit, lista_lmp, top3_content)
 
     # ── aba P×Q ───────────────────────────────────────────────────────────
     @callback(
@@ -3302,9 +3370,11 @@ def criar_app() -> Dash:
         Output("pq-inf-quebras",    "children"),
         Output("pq-snapshot",      "data"),
         Input("nav-ativa",         "data"),
+        Input("pq-date-range",     "start_date"),
+        Input("pq-date-range",     "end_date"),
         State("pkg",               "data"),
     )
-    def aba_pq(nav_ativa, pkg):
+    def aba_pq(nav_ativa, pq_ini, pq_fim, pkg):
         vz    = kpi_card("—", "—")
         empty = _empty_fig("Sem dados", 420)
         vazios = [html.Div("—", className="empty")]
@@ -3323,6 +3393,14 @@ def criar_app() -> Dash:
             dados_opc["timestamp"] = pd.to_datetime(dados_opc["timestamp"])
         else:
             dados_opc = pd.DataFrame()
+
+        if pq_ini and pq_fim:
+            ts_ini = pd.Timestamp(pq_ini)
+            ts_fim = pd.Timestamp(pq_fim) + pd.Timedelta(days=1)
+            if not dados_opc.empty and "timestamp" in dados_opc.columns:
+                dados_opc = dados_opc[(dados_opc["timestamp"] >= ts_ini) & (dados_opc["timestamp"] <= ts_fim)].copy()
+            if not dq.empty and "Data" in dq.columns:
+                dq = dq[(dq["Data"] >= ts_ini) & (dq["Data"] <= ts_fim)].copy()
 
         df_j, df_corr = correlacionar_processo_qualidade(dados_opc, dq, dp)
 
@@ -3376,9 +3454,11 @@ def criar_app() -> Dash:
         Input("pq-sel-var",    "value"),
         Input("pq-sel-target", "value"),
         Input("nav-ativa",     "data"),
+        State("pq-date-range", "start_date"),
+        State("pq-date-range", "end_date"),
         State("pkg",           "data"),
     )
-    def scatter_pq(var_proc, target, nav_ativa, pkg):
+    def scatter_pq(var_proc, target, nav_ativa, pq_ini, pq_fim, pkg):
         if nav_ativa != "pq" or not var_proc or not target or not pkg:
             return _empty_fig("Selecione variável e target", 300)
         from io import StringIO
@@ -3386,6 +3466,13 @@ def criar_app() -> Dash:
         dados_opc["timestamp"] = pd.to_datetime(dados_opc["timestamp"])
         dq, _ = _cached("qual", carregar_qualidade)
         dp    = _cached("prod", carregar_producao)
+        if pq_ini and pq_fim:
+            ts_ini = pd.Timestamp(pq_ini)
+            ts_fim = pd.Timestamp(pq_fim) + pd.Timedelta(days=1)
+            if not dados_opc.empty and "timestamp" in dados_opc.columns:
+                dados_opc = dados_opc[(dados_opc["timestamp"] >= ts_ini) & (dados_opc["timestamp"] <= ts_fim)].copy()
+            if not dq.empty and "Data" in dq.columns:
+                dq = dq[(dq["Data"] >= ts_ini) & (dq["Data"] <= ts_fim)].copy()
         df_j, _ = correlacionar_processo_qualidade(dados_opc, dq, dp)
         return fig_scatter_pq(df_j, var_proc, target)
 
@@ -3558,14 +3645,20 @@ def criar_app() -> Dash:
         Output("yankee-lista",  "children"),
         Input("nav-ativa",      "data"),
         Input("yt-btn",         "n_clicks"),
+        Input("yk-date-range",  "start_date"),
+        Input("yk-date-range",  "end_date"),
     )
-    def aba_yankee(nav_ativa, _btn):
+    def aba_yankee(nav_ativa, _btn, yk_ini, yk_fim):
         vz    = kpi_card("—", "—")
         empty = _empty_fig("Sem leituras registradas", 300)
         if nav_ativa != "yankee":
             raise PreventUpdate
 
-        df = _cached("yankee", lambda: carregar_temperaturas_yankee(dias=30))
+        df = _cached("yankee", lambda: carregar_temperaturas_yankee(dias=90))
+        if yk_ini and yk_fim and not df.empty and "timestamp" in df.columns:
+            ts_ini = pd.Timestamp(yk_ini, tz="UTC")
+            ts_fim = pd.Timestamp(yk_fim, tz="UTC") + pd.Timedelta(days=1)
+            df = df[(df["timestamp"] >= ts_ini) & (df["timestamp"] <= ts_fim)].copy()
 
         if df.empty:
             return (
