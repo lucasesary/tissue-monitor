@@ -1381,6 +1381,9 @@ def fig_corr_dt(dp: pd.DataFrame, dd_oper: pd.DataFrame,
     if freq == "mes":
         dp2["_per"] = dp2["Data"].dt.to_period("M").dt.to_timestamp()
         fmt = "%b/%Y"
+    elif freq == "sem":
+        dp2["_per"] = dp2["Data"].dt.to_period("W").dt.to_timestamp()
+        fmt = "%d/%m"
     else:
         dp2["_per"] = dp2["Data"].dt.floor("D")
         fmt = "%d/%m"
@@ -1410,6 +1413,8 @@ def fig_corr_dt(dp: pd.DataFrame, dd_oper: pd.DataFrame,
                        .dt.tz_convert(_BRT).dt.tz_localize(None))
         if freq == "mes":
             dd2["_per"] = dd2["_per"].dt.to_period("M").dt.to_timestamp()
+        elif freq == "sem":
+            dd2["_per"] = dd2["_per"].dt.to_period("W").dt.to_timestamp()
         else:
             dd2["_per"] = dd2["_per"].dt.floor("D")
         agg_dt = dd2.groupby("_per")[col_dur].sum().reset_index()
@@ -2401,9 +2406,9 @@ def criar_app() -> Dash:
                         style={"fontSize": "13px", "minWidth": "180px",
                                "background": P["surf"]},
                     ),
-                    html.Button("Diário", id="btn-dtc-dia", className="tab-btn on", n_clicks=0),
-                    html.Button("Mensal", id="btn-dtc-mes", className="tab-btn",    n_clicks=0),
-                    dcc.Store(id="dt-corr-freq", data="dia"),
+                    html.Button("Semanal", id="btn-dtc-sem", className="tab-btn",    n_clicks=0),
+                    html.Button("Mensal",  id="btn-dtc-mes", className="tab-btn on", n_clicks=0),
+                    dcc.Store(id="dt-corr-freq", data="mes"),
                 ]),
                 dcc.Graph(id="g-dt-corr", config={"displayModeBar": False},
                           figure=_empty_fig("Carregando...", 360)),
@@ -3243,15 +3248,16 @@ def criar_app() -> Dash:
 
     @callback(
         Output("dt-corr-freq",  "data"),
-        Output("btn-dtc-dia",   "className"),
+        Output("btn-dtc-sem",   "className"),
         Output("btn-dtc-mes",   "className"),
-        Input("btn-dtc-dia",    "n_clicks"),
+        Input("btn-dtc-sem",    "n_clicks"),
         Input("btn-dtc-mes",    "n_clicks"),
+        prevent_initial_call=True,
     )
     def toggle_dt_corr_freq(*_):
-        ativo = "mes" if ctx.triggered_id == "btn-dtc-mes" else "dia"
+        ativo = "sem" if ctx.triggered_id == "btn-dtc-sem" else "mes"
         return (ativo,
-                "tab-btn on" if ativo == "dia" else "tab-btn",
+                "tab-btn on" if ativo == "sem" else "tab-btn",
                 "tab-btn on" if ativo == "mes" else "tab-btn")
 
     @callback(
@@ -3273,18 +3279,22 @@ def criar_app() -> Dash:
 
         col_ini = next((c for c in dd_reais.columns
                         if c.lower().replace("í","i").startswith("ini")), None)
-        if dt_ini and dt_fim and col_ini and not dd_reais.empty:
+        if dt_ini and dt_fim:
             ts_ini = pd.Timestamp(dt_ini)
             ts_fim = pd.Timestamp(dt_fim) + pd.Timedelta(days=1)
-            _ts = pd.to_datetime(dd_reais[col_ini], utc=True).dt.tz_localize(None)
-            dd_reais = dd_reais[(_ts >= ts_ini) & (_ts <= ts_fim)].copy()
+            if col_ini and not dd_reais.empty:
+                _ts = pd.to_datetime(dd_reais[col_ini], utc=True).dt.tz_convert(None)
+                dd_reais = dd_reais[(_ts >= ts_ini) & (_ts <= ts_fim)].copy()
+            if not dp.empty and "Data" in dp.columns:
+                _dp_ts = pd.to_datetime(dp["Data"], utc=True).dt.tz_convert(None)
+                dp = dp[(_dp_ts >= ts_ini) & (_dp_ts <= ts_fim)].copy()
 
         if "Classe" in dd_reais.columns:
             dd_oper = dd_reais[~dd_reais["Classe"].str.contains("MCR", na=False)].copy()
         else:
             dd_oper = dd_reais.copy()
 
-        return fig_corr_dt(dp, dd_oper, var or "producao", freq or "dia")
+        return fig_corr_dt(dp, dd_oper, var or "producao", freq or "mes")
 
     # ── aba downtime ──────────────────────────────────────────────────────
     @callback(
