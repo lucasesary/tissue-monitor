@@ -3007,10 +3007,10 @@ def criar_app() -> Dash:
             if produto_sel and produto_sel != "__todos__" and col_prod:
                 dq_f = dq[dq[col_prod] == produto_sel].copy()
 
-            # filtrar por período selecionado
+            # filtrar por período selecionado (Data é tz-aware UTC)
             if q_ini and q_fim and "Data" in dq_f.columns:
-                ts_ini = pd.Timestamp(q_ini)
-                ts_fim = pd.Timestamp(q_fim) + pd.Timedelta(days=1)
+                ts_ini = pd.Timestamp(q_ini, tz="UTC")
+                ts_fim = pd.Timestamp(q_fim, tz="UTC") + pd.Timedelta(days=1)
                 dq_f = dq_f[(dq_f["Data"] >= ts_ini) & (dq_f["Data"] <= ts_fim)].copy()
 
             conf = resumo_conformidade(dq_f, specs)
@@ -3395,12 +3395,14 @@ def criar_app() -> Dash:
             dados_opc = pd.DataFrame()
 
         if pq_ini and pq_fim:
-            ts_ini = pd.Timestamp(pq_ini)
-            ts_fim = pd.Timestamp(pq_fim) + pd.Timedelta(days=1)
+            ts_ini_naive = pd.Timestamp(pq_ini)
+            ts_fim_naive = pd.Timestamp(pq_fim) + pd.Timedelta(days=1)
+            ts_ini_utc   = pd.Timestamp(pq_ini, tz="UTC")
+            ts_fim_utc   = pd.Timestamp(pq_fim, tz="UTC") + pd.Timedelta(days=1)
             if not dados_opc.empty and "timestamp" in dados_opc.columns:
-                dados_opc = dados_opc[(dados_opc["timestamp"] >= ts_ini) & (dados_opc["timestamp"] <= ts_fim)].copy()
+                dados_opc = dados_opc[(dados_opc["timestamp"] >= ts_ini_naive) & (dados_opc["timestamp"] <= ts_fim_naive)].copy()
             if not dq.empty and "Data" in dq.columns:
-                dq = dq[(dq["Data"] >= ts_ini) & (dq["Data"] <= ts_fim)].copy()
+                dq = dq[(dq["Data"] >= ts_ini_utc) & (dq["Data"] <= ts_fim_utc)].copy()
 
         df_j, df_corr = correlacionar_processo_qualidade(dados_opc, dq, dp)
 
@@ -3467,12 +3469,14 @@ def criar_app() -> Dash:
         dq, _ = _cached("qual", carregar_qualidade)
         dp    = _cached("prod", carregar_producao)
         if pq_ini and pq_fim:
-            ts_ini = pd.Timestamp(pq_ini)
-            ts_fim = pd.Timestamp(pq_fim) + pd.Timedelta(days=1)
+            ts_ini_naive = pd.Timestamp(pq_ini)
+            ts_fim_naive = pd.Timestamp(pq_fim) + pd.Timedelta(days=1)
+            ts_ini_utc   = pd.Timestamp(pq_ini, tz="UTC")
+            ts_fim_utc   = pd.Timestamp(pq_fim, tz="UTC") + pd.Timedelta(days=1)
             if not dados_opc.empty and "timestamp" in dados_opc.columns:
-                dados_opc = dados_opc[(dados_opc["timestamp"] >= ts_ini) & (dados_opc["timestamp"] <= ts_fim)].copy()
+                dados_opc = dados_opc[(dados_opc["timestamp"] >= ts_ini_naive) & (dados_opc["timestamp"] <= ts_fim_naive)].copy()
             if not dq.empty and "Data" in dq.columns:
-                dq = dq[(dq["Data"] >= ts_ini) & (dq["Data"] <= ts_fim)].copy()
+                dq = dq[(dq["Data"] >= ts_ini_utc) & (dq["Data"] <= ts_fim_utc)].copy()
         df_j, _ = correlacionar_processo_qualidade(dados_opc, dq, dp)
         return fig_scatter_pq(df_j, var_proc, target)
 
