@@ -1288,33 +1288,61 @@ def fig_producao_downtime_semanal(dq: pd.DataFrame, dd: pd.DataFrame) -> go.Figu
     return fig
 
 
-def fig_downtime_diario(dd: pd.DataFrame) -> go.Figure:
-    """Barras de downtime por dia com linhas de meta."""
-    col_ini = next((c for c in dd.columns if c.lower().replace("í","i").startswith("ini")), None)
-    col_dur = next((c for c in dd.columns if "ura" in c.lower() and "min" in c.lower()), None)
-    if dd.empty or not col_ini or not col_dur:
-        return _empty_fig("Sem dados de downtime", 360)
+def fig_downtime_diario(dd_oper: pd.DataFrame, dd_mcr: "pd.DataFrame | None" = None) -> go.Figure:
+    """Barras diárias de downtime operacional + MCR empilhado (opcional)."""
+    col_ini = next((c for c in dd_oper.columns if c.lower().replace("í","i").startswith("ini")), None)
+    col_dur = next((c for c in dd_oper.columns if "ura" in c.lower() and "min" in c.lower()), None)
+    if dd_oper.empty or not col_ini or not col_dur:
+        return _empty_fig("Sem dados de downtime operacional", 360)
 
-    dd2 = dd.copy()
-    dd2["_dia"] = pd.to_datetime(dd2[col_ini], utc=True).dt.floor("D")
-    dt = dd2.groupby("_dia")[col_dur].sum().reset_index()
-    dt.columns = ["dia", "downtime_min"]
+    _BRT = "America/Sao_Paulo"
 
+    def _agg_por_dia(df):
+        d = df.copy()
+        d = d[d[col_dur] > 0]          # descarta registros com duração inválida
+        d["_dia"] = (
+            pd.to_datetime(d[col_ini], utc=True)
+            .dt.tz_convert(_BRT)
+            .dt.floor("D")
+            .dt.tz_localize(None)
+        )
+        return d.groupby("_dia")[col_dur].sum().reset_index(names=["dia", "min"])
+
+    dt_op = _agg_por_dia(dd_oper)
+    if dt_op.empty:
+        return _empty_fig("Sem dados de downtime operacional", 360)
+
+    labels = [d.strftime("%d/%m") for d in dt_op["dia"]]
     cores = [
         P["ok"]   if v <= _META_DT_DES else
         P["warn"] if v <= _META_DT_MIN  else P["crit"]
-        for v in dt["downtime_min"]
+        for v in dt_op["min"]
     ]
-    labels = [d.strftime("%d/%m") for d in dt["dia"]]
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        name="Downtime/dia", x=labels, y=dt["downtime_min"],
+        name="Operacional", x=labels, y=dt_op["min"],
         marker_color=cores, opacity=0.85,
-        hovertemplate="<b>%{x}</b><br>Downtime: <b>%{y:.0f} min</b><extra></extra>",
-        text=[f"{v:.0f}" for v in dt["downtime_min"]],
-        textposition="outside", textfont=dict(size=9, color=P["muted2"]),
+        hovertemplate="<b>%{x}</b><br>Operacional: <b>%{y:.0f} min</b><extra></extra>",
+        text=[f"{v:.0f}" for v in dt_op["min"]],
+        textposition="inside", textfont=dict(size=9, color="#fff"),
     ))
+
+    if dd_mcr is not None and not dd_mcr.empty and col_ini in dd_mcr.columns and col_dur in dd_mcr.columns:
+        dt_mc = _agg_por_dia(dd_mcr)
+        if not dt_mc.empty:
+            # alinha dias com o operacional
+            dt_mc["lbl"] = dt_mc["dia"].dt.strftime("%d/%m")
+            mc_map = dict(zip(dt_mc["lbl"], dt_mc["min"]))
+            y_mc = [mc_map.get(l, 0) for l in labels]
+            fig.add_trace(go.Bar(
+                name="MCR", x=labels, y=y_mc,
+                marker_color=P["crit"], opacity=0.75,
+                hovertemplate="<b>%{x}</b><br>MCR: <b>%{y:.0f} min</b><extra></extra>",
+                text=[f"{v:.0f}" if v > 0 else "" for v in y_mc],
+                textposition="inside", textfont=dict(size=9, color="#fff"),
+            ))
+
     fig.add_hline(y=_META_DT_MIN, line=dict(color=P["warn"], dash="dot", width=1.5),
                   annotation_text=f"Meta {_META_DT_MIN:.0f} min/dia",
                   annotation_font=dict(size=9, color=P["warn"]),
@@ -1327,9 +1355,10 @@ def fig_downtime_diario(dd: pd.DataFrame) -> go.Figure:
     fig.update_layout(
         template="plotly_white",
         paper_bgcolor=P["card"], plot_bgcolor=P["plot"], font=dict(color=P["text"]),
-        height=360,
+        height=360, barmode="stack",
         margin=dict(l=60, r=20, t=36, b=50),
-        showlegend=False,
+        showlegend=dd_mcr is not None and not dd_mcr.empty,
+        legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10, color=P["text"])),
         hovermode="x unified",
         hoverlabel=dict(bgcolor="#0F1524", font_size=11, font_color="#FFFFFF", bordercolor="#00D4FF"),
         xaxis=dict(tickfont=dict(size=10, color=P["text"]), tickangle=-30),
@@ -2217,10 +2246,16 @@ def criar_app() -> Dash:
             html.Div(style={"display": "flex", "flexDirection": "column", "gap": "14px"}, children=[
 
                 section("Produção × Downtime",
-                    html.Div(style={"display": "flex", "gap": "6px", "marginBottom": "10px"}, children=[
+                    html.Div(style={"display": "flex", "gap": "6px", "marginBottom": "10px",
+                                    "alignItems": "center"}, children=[
                         html.Button("Semanal", id="btn-dt-semanal", className="tab-btn on", n_clicks=0),
                         html.Button("Diário",  id="btn-dt-diario",  className="tab-btn",    n_clicks=0),
+                        html.Div(style={"width": "1px", "height": "20px",
+                                        "background": P["border"], "margin": "0 4px"}),
+                        html.Button("+ MCR", id="btn-dt-mcr", className="tab-btn", n_clicks=0,
+                                    title="Mostrar MCR empilhado no gráfico diário"),
                     ]),
+                    dcc.Store(id="dt-mcr", data=False),
                     dcc.Graph(id="g-dt-semanal", config={"displayModeBar": False},
                               figure=_empty_fig("Carregando...", 360)),
                 ),
@@ -3078,6 +3113,17 @@ def criar_app() -> Dash:
         return ativo, ("tab-btn on" if ativo == "semanal" else "tab-btn"), \
                       ("tab-btn on" if ativo == "diario"  else "tab-btn")
 
+    @callback(
+        Output("dt-mcr",     "data"),
+        Output("btn-dt-mcr", "className"),
+        Input("btn-dt-mcr",  "n_clicks"),
+        State("dt-mcr",      "data"),
+        prevent_initial_call=True,
+    )
+    def toggle_dt_mcr(n, atual):
+        novo = not bool(atual)
+        return novo, ("tab-btn on" if novo else "tab-btn")
+
     # ── aba downtime ──────────────────────────────────────────────────────
     @callback(
         Output("dk0", "children"), Output("dk1", "children"),
@@ -3088,12 +3134,13 @@ def criar_app() -> Dash:
         Output("dt-lista-criticas","children"),
         Output("dt-lista-lmp",     "children"),
         Output("dt-top3",          "children"),
-        Input("nav-ativa",         "data"),
+        Input("nav-ativa",   "data"),
         Input("dt-date-ini", "value"),
         Input("dt-date-fim", "value"),
-        Input("dt-visao",          "data"),
+        Input("dt-visao",    "data"),
+        Input("dt-mcr",      "data"),
     )
-    def aba_downtime(nav_ativa, dt_ini, dt_fim, dt_visao):
+    def aba_downtime(nav_ativa, dt_ini, dt_fim, dt_visao, show_mcr):
         vz      = kpi_card("—", "—")
         empty   = _empty_fig("Sem dados", 320)
         if nav_ativa != "downtime":
@@ -3151,9 +3198,18 @@ def criar_app() -> Dash:
         pareto_fig_data = _calc_pareto_df(dd_reais) if (dt_ini and dt_fim) else pareto
         g_pareto = fig_pareto_downtime(pareto_fig_data)
 
+        # separa MCR do operacional
+        if "Classe" in dd_reais.columns:
+            mask_mcr  = dd_reais["Classe"].str.contains("MCR", na=False)
+            dd_oper   = dd_reais[~mask_mcr].copy()
+            dd_mcr_df = dd_reais[mask_mcr].copy()
+        else:
+            dd_oper   = dd_reais.copy()
+            dd_mcr_df = pd.DataFrame()
+
         # gráfico semanal ou diário conforme toggle
         if dt_visao == "diario":
-            g_semanal = fig_downtime_diario(dd_reais)
+            g_semanal = fig_downtime_diario(dd_oper, dd_mcr_df if show_mcr else None)
         else:
             g_semanal = fig_producao_downtime_semanal(dq, dd_reais)
 
