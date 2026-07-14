@@ -1,9 +1,8 @@
 """
-Análise de espessura: cruzamento Produção × Qualidade × Processo (OPC UA).
+Análise de variáveis de qualidade: cruzamento Produção × Qualidade × Processo.
 
-Toda a lógica de negócio fica aqui. O dashboard importa apenas
-`resumo_espessura()` e exibe o resultado — sem math ou join embutido
-na camada de visualização.
+A variável-alvo é parametrizável — Espessura, Umidade, Tração, Handfeel, etc.
+O dashboard importa `resumo_qualidade(variavel_alvo)` e exibe o resultado.
 """
 from __future__ import annotations
 
@@ -14,7 +13,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-# Raiz do projeto: analisar_tissue.py/ (um nível acima de services/)
 _DADOS = Path(__file__).parent.parent / "dados"
 
 _MESES_PT: dict[str, str] = {
@@ -23,7 +21,16 @@ _MESES_PT: dict[str, str] = {
     "set": "09", "out": "10", "nov": "11", "dez": "12",
 }
 
-# Variáveis de processo para correlacionar com espessura
+# Variáveis de qualidade que podem ser alvo OU preditoras
+# (quando uma é alvo, é excluída da lista de preditoras automaticamente)
+_VARS_QUALIDADE_TODAS = [
+    "Espessura", "Umidade", "UmidadeQCS", "Gramatura",
+    "Tração Longitudinal", "Tração Transversal", "Tração Transversal Úmida",
+    "Alongamento", "Handfeel", "Maciez TSA", "Bulk",
+    "Alvura", "GMT", "GramaturaPM1",
+]
+
+# Variáveis de processo a usar como preditoras (independente do alvo)
 _VARS_PROCESSO = [
     "PRENSA",
     "Potência Ref. 01",
@@ -47,20 +54,56 @@ _VARS_PROCESSO = [
     "Diferencial",
 ]
 
-_VARS_QUALIDADE_EXTRA = ["Umidade", "UmidadeQCS", "Tração Longitudinal", "Tração Transversal"]
 _VARS_PRODUCAO_EXTRA = ["Velocidade", "Gr/m2"]
 
-# Colunas de temperatura Yankee no CSV de processo: zero = dado ausente, não valor real
 _COLS_YANKEE = [
     "Temperatura Superfície Yankee LA",
     "Temperatura Superfície Yankee LC",
+]
+
+# Unidades por variável — usadas nas strings de magnitude (sem r= exposto)
+_UNIDADES: dict[str, str] = {
+    "Espessura": "mm",
+    "Gramatura": "g/m²",
+    "GramaturaPM1": "g/m²",
+    "Umidade": "%",
+    "UmidadeQCS": "%",
+    "Alongamento": "%",
+    "Tração Longitudinal": "N/m",
+    "Tração Transversal": "N/m",
+    "Tração Transversal Úmida": "N/m",
+    "Bulk": "cm³/g",
+    "Handfeel": "pts",
+    "Maciez TSA": "pts",
+    "Alvura": "%ISO",
+    "GMT": "N/m",
+}
+
+# Lista exportada para o dropdown da interface (label visível, valor interno)
+VARIAVEIS_QUALIDADE: list[dict] = [
+    {"label": v, "value": v}
+    for v in [
+        "Espessura",
+        "Gramatura",
+        "Tração Longitudinal",
+        "Tração Transversal",
+        "Alongamento",
+        "Umidade",
+        "Handfeel",
+        "Maciez TSA",
+        "Bulk",
+        "Alvura",
+        "GMT",
+        "Tração Transversal Úmida",
+        "UmidadeQCS",
+        "GramaturaPM1",
+    ]
 ]
 
 
 # ── Helpers internos ──────────────────────────────────────────────────────────
 
 def _parse_ts_pt(v: str) -> "pd.Timestamp":
-    """'01-mai-26 00:00:00' → Timestamp. Retorna NaT se inválido."""
     m = re.match(r"(\d+)-(\w+)-(\d+)\s+(\d+:\d+:\d+)", str(v).strip())
     if not m:
         return pd.NaT
@@ -72,7 +115,6 @@ def _parse_ts_pt(v: str) -> "pd.Timestamp":
 
 
 def _to_float(s: "pd.Series") -> "pd.Series":
-    """String com vírgula decimal → float. Strings inválidas → NaN."""
     return pd.to_numeric(
         s.astype(str).str.replace(",", ".").str.strip(), errors="coerce"
     )
@@ -92,6 +134,10 @@ def _safe_float(row: "pd.Series", col: str) -> float | None:
     return round(float(v), 3)
 
 
+def _unidade(variavel: str) -> str:
+    return _UNIDADES.get(variavel, "u")
+
+
 # ── Carregamento das fontes ───────────────────────────────────────────────────
 
 def _carregar_producao(path: Path) -> "pd.DataFrame":
@@ -103,8 +149,6 @@ def _carregar_producao(path: Path) -> "pd.DataFrame":
 
 def _carregar_qualidade(path: Path) -> "pd.DataFrame":
     raw = pd.read_excel(path, sheet_name=0, header=0)
-    # Linha 0 do DataFrame contém os nomes reais de coluna (o Excel tem
-    # um cabeçalho genérico como primeira linha do arquivo)
     real_cols = [
         str(c).strip() if pd.notna(c) else f"_col{i}"
         for i, c in enumerate(raw.iloc[0])
@@ -115,11 +159,20 @@ def _carregar_qualidade(path: Path) -> "pd.DataFrame":
     df["Data"] = pd.to_datetime(df["Data"], errors="coerce")
     df["Num.Rastreamento"] = pd.to_numeric(df["Num.Rastreamento"], errors="coerce")
 
+    # Converter todas as colunas numéricas possíveis (vírgula decimal)
     cols_num = [
         "Espessura", "Espessura A", "Espessura C", "Espessura M",
         "Umidade", "Umidade A", "Umidade C", "Umidade M", "UmidadeQCS",
-        "Gramatura", "Tração Longitudinal", "Tração Transversal",
-        "Bulk", "Handfeel", "Maciez TSA",
+        "Gramatura", "Gramatura A", "Gramatura C", "Gramatura M", "GramaturaPM1",
+        "Tração Longitudinal", "Tração Longitudinal A", "Tração Longitudinal C", "Tração Longitudinal M",
+        "Tração Transversal", "Tração Transversal A", "Tração Transversal C", "Tração Transversal M",
+        "Tração Transversal Úmida",
+        "Alongamento", "Alongamento A", "Alongamento C", "Alongamento M",
+        "Bulk", "Handfeel", "Maciez TSA", "Alvura", "GMT",
+        "Densidade Aparente", "Fator de Orientação MD/CD", "Emenda",
+        "Diâmetro bobina", "Largura da bobina", "Teor Seco",
+        "Furos - Diâmetro", "Furos - Quantidade",
+        "TS7", "TS750", "RIGIDEZ - D",
     ]
     for col in cols_num:
         if col in df.columns:
@@ -132,10 +185,6 @@ def _carregar_processo(path: Path) -> "pd.DataFrame":
     raw = pd.read_csv(
         path, encoding="latin-1", sep=";", header=None, low_memory=False
     )
-    # Linha 0: estatísticas de exportação (ignorar)
-    # Linha 1: nomes dos parâmetros (col 0 vazio → será "timestamp")
-    # Linha 2: tags OPC UA (col 0 = "data")
-    # Linha 3+: dados reais
     param_names = raw.iloc[1].tolist()
     col_names = ["timestamp"] + [
         str(v).strip() if (pd.notna(v) and str(v).strip()) else f"_col{i}"
@@ -152,7 +201,6 @@ def _carregar_processo(path: Path) -> "pd.DataFrame":
             df[col].astype(str).str.replace(",", ".").str.strip(), errors="coerce"
         )
 
-    # Zero = dado ausente em temperatura Yankee (máquina opera ~95 °C na superfície)
     for col in _COLS_YANKEE:
         if col in df.columns:
             df[col] = df[col].replace(0, np.nan)
@@ -165,10 +213,6 @@ def carregar_bases(
     path_qual: "Path | str | None" = None,
     path_proc: "Path | str | None" = None,
 ) -> dict:
-    """
-    Carrega as três fontes. Sem argumentos, usa o arquivo mais recente
-    em cada subdiretório de dados/.
-    """
     path_prod = Path(path_prod) if path_prod else _mais_recente(_DADOS / "producao", "*.xlsx")
     path_qual = Path(path_qual) if path_qual else _mais_recente(_DADOS / "qualidade", "*.xlsx")
     path_proc = Path(path_proc) if path_proc else _mais_recente(_DADOS / "processo", "*.csv")
@@ -199,11 +243,9 @@ def carregar_bases(
 
 def cruzar_fontes(bases: dict) -> "pd.DataFrame":
     """
-    1. Inner join Produção × Qualidade por Track Num = Num.Rastreamento (igualdade inteira).
+    1. Inner join Produção × Qualidade por Track Num = Num.Rastreamento.
     2. merge_asof backward com Processo no timestamp da bobina.
-       Regra documentada: usa o registro de processo imediatamente anterior
-       ao horário da bobina, capturando o estado real da máquina durante
-       sua produção — nunca arredonda para hora cheia.
+       Regra: registro de processo imediatamente anterior ao horário da bobina.
     """
     df_prod = bases["producao"].rename(columns={"Data": "timestamp_prod"}).copy()
     df_qual = bases["qualidade"].rename(
@@ -212,31 +254,25 @@ def cruzar_fontes(bases: dict) -> "pd.DataFrame":
     df_proc = bases["processo"].copy()
 
     base = pd.merge(
-        df_prod, df_qual,
-        on="Track Num",
-        suffixes=("_prod", "_qual"),
-        how="inner",
+        df_prod, df_qual, on="Track Num",
+        suffixes=("_prod", "_qual"), how="inner",
     )
     if base.empty:
         return base
 
-    # Selecionar colunas de processo úteis para não inflar o dataframe
     cols_proc = ["timestamp"] + [
-        c for c in (_VARS_PROCESSO + _COLS_YANKEE)
-        if c in df_proc.columns
+        c for c in (_VARS_PROCESSO + _COLS_YANKEE) if c in df_proc.columns
     ]
     df_proc_sel = df_proc[cols_proc].sort_values("timestamp")
-
     base = base.sort_values("timestamp_prod").reset_index(drop=True)
 
-    merged = pd.merge_asof(
+    return pd.merge_asof(
         base,
         df_proc_sel.rename(columns={"timestamp": "ts_proc"}),
         left_on="timestamp_prod",
         right_on="ts_proc",
         direction="backward",
     )
-    return merged
 
 
 # ── Detecção de mudança de regime ─────────────────────────────────────────────
@@ -250,21 +286,16 @@ def detectar_mudanca_regime(
     """
     Critério objetivo: variação entre médias de janelas consecutivas de
     janela_h horas acima de limiar_sigma × desvio padrão das médias de janela.
-
-    Retorna lista com timestamp exato, coluna, delta em unidade real e ratio em σ.
-    Lista vazia = sem evidência objetiva de mudança — segmentação não é forçada.
+    Lista vazia = sem evidência objetiva — segmentação não é forçada.
     """
     if col not in df_proc.columns:
         return []
-
     serie = df_proc.set_index("timestamp")[col].dropna()
     if serie.empty:
         return []
-
     medias = serie.resample(f"{janela_h}h").mean().dropna()
     if len(medias) < 3:
         return []
-
     std_global = float(medias.std())
     if std_global == 0:
         return []
@@ -279,32 +310,24 @@ def detectar_mudanca_regime(
                 "delta": round(float(delta), 3),
                 "sigma_ratio": round(float(ratio), 2),
                 "direcao": "subida" if delta > 0 else "queda",
-                "criterio": (
-                    f"Δ = {delta:+.2f} unidades ({ratio:.1f}σ) "
-                    f"em janela de {janela_h}h"
-                ),
+                "criterio": f"Δ = {delta:+.2f} ({ratio:.1f}σ) em janela de {janela_h}h",
             })
-
     return sorted(mudancas, key=lambda x: x["timestamp"])
 
 
 def segmentar_regimes(
     base_bobina: "pd.DataFrame",
     mudancas: list[dict],
+    col_regime: str = "PRENSA",
 ) -> tuple["pd.DataFrame", dict[str, str]]:
-    """
-    Adiciona coluna 'regime' ao dataframe de bobinas.
-    Só segmenta se houver mudanças com critério objetivo confirmado.
-    Avisa (campo 'avisos') quando n < 10 bobinas em qualquer regime.
-    """
     df = base_bobina.copy()
     avisos: dict[str, str] = {}
 
     if not mudancas:
         df["regime"] = "Período único"
         avisos["geral"] = (
-            "Sem mudança de regime detectada com critério objetivo "
-            f"(limiar 3σ em janelas de 4h na PRENSA) — análise sem segmentação."
+            f"Sem mudança de regime detectada com critério objetivo "
+            f"(limiar 3σ em janelas de 4h em {col_regime}) — análise sem segmentação."
         )
         return df, avisos
 
@@ -317,84 +340,86 @@ def segmentar_regimes(
         return f"Regime {len(breakpoints) + 1} (após {breakpoints[-1].strftime('%d/%m %Hh')})"
 
     df["regime"] = df["timestamp_prod"].apply(_regime)
-
     for regime, n in df["regime"].value_counts().items():
         if n < 10:
             avisos[regime] = (
                 f"Baixa confiança: apenas {n} bobina(s) neste regime "
                 f"— leitura estatística não confiável."
             )
-
     return df, avisos
 
 
 # ── Correlação com magnitude em unidade real ──────────────────────────────────
 
 def _correlacao_par(
-    x: "pd.Series", y: "pd.Series", nome_x: str
+    x: "pd.Series", y: "pd.Series",
+    nome_x: str, unidade_alvo: str,
 ) -> dict | None:
     mask = x.notna() & y.notna()
     n = int(mask.sum())
     if n < 5:
         return None
-
     xv, yv = x[mask].to_numpy(float), y[mask].to_numpy(float)
     r = float(np.corrcoef(xv, yv)[0, 1])
     if not np.isfinite(r):
         return None
-
     slope = float(np.polyfit(xv, yv, 1)[0])
     x_std = float(np.std(xv))
     abs_r = abs(r)
 
-    if abs_r >= 0.70:
-        forca = "forte"
-    elif abs_r >= 0.50:
-        forca = "moderada"
-    elif abs_r >= 0.35:
-        forca = "fraca"
-    else:
-        forca = "ausente"
-
+    forca = (
+        "forte" if abs_r >= 0.70 else
+        "moderada" if abs_r >= 0.50 else
+        "fraca" if abs_r >= 0.35 else
+        "ausente"
+    )
     return {
         "variavel": nome_x,
         "n": n,
         "direcao": "positiva" if r > 0 else "negativa",
         "forca": forca,
         "sustenta_hipotese": abs_r >= 0.35,
-        # Magnitude expressa em unidade real, sem r= exposto
-        "magnitude_1u": f"{slope:+.5f} mm por unidade de {nome_x}",
-        "magnitude_1std": (
-            f"{slope * x_std:+.4f} mm por 1σ ({x_std:.2f}) de {nome_x}"
+        "magnitude_1u": (
+            f"{slope:+.5f} {unidade_alvo} por unidade de {nome_x}"
         ),
-        "_r": round(r, 4),      # interno — não expor na UI principal
+        "magnitude_1std": (
+            f"{slope * x_std:+.4f} {unidade_alvo} por 1σ ({x_std:.2f}) de {nome_x}"
+        ),
+        "_r": round(r, 4),
         "_slope": round(slope, 6),
     }
 
 
-def calcular_correlacoes_espessura(
+def calcular_correlacoes(
     base_bobina: "pd.DataFrame",
+    variavel_alvo: str,
     regime: str | None = None,
 ) -> list[dict]:
     """
-    Correlaciona Espessura com variáveis de processo, qualidade extra e produção.
-    Se regime fornecido, filtra o dataframe antes de calcular.
-    Retorna lista ordenada: sustenta hipótese primeiro, depois por |r| decrescente.
+    Correlaciona variavel_alvo com variáveis de processo, produção e demais
+    variáveis de qualidade (excluindo a própria variavel_alvo dos preditores).
     """
     df = base_bobina if regime is None else base_bobina[
-        base_bobina.get("regime", pd.Series("")) == regime
+        base_bobina.get("regime", pd.Series(dtype=str)) == regime
     ]
-    y = df["Espessura"]
+    if variavel_alvo not in df.columns:
+        return []
+
+    y = df[variavel_alvo]
+    unidade = _unidade(variavel_alvo)
     resultados = []
+
+    # Preditoras de qualidade = todas exceto a variável-alvo
+    vars_qual_pred = [v for v in _VARS_QUALIDADE_TODAS if v != variavel_alvo]
 
     for nome, origem in (
         [(v, "processo") for v in _VARS_PROCESSO]
-        + [(v, "qualidade") for v in _VARS_QUALIDADE_EXTRA]
+        + [(v, "qualidade") for v in vars_qual_pred]
         + [(v, "producao") for v in _VARS_PRODUCAO_EXTRA]
     ):
         if nome not in df.columns:
             continue
-        r = _correlacao_par(df[nome], y, nome_x=nome)
+        r = _correlacao_par(df[nome], y, nome_x=nome, unidade_alvo=unidade)
         if r is not None:
             r["origem"] = origem
             resultados.append(r)
@@ -404,13 +429,15 @@ def calcular_correlacoes_espessura(
 
 # ── Casos fora de especificação ───────────────────────────────────────────────
 
-def casos_fora_spec(base_bobina: "pd.DataFrame") -> dict:
+def casos_fora_spec(
+    base_bobina: "pd.DataFrame",
+    variavel_alvo: str,
+) -> dict:
     """
-    Filtra bobinas por status separando:
-      J = Fora de Especificação (pode coexistir com aprovação condicional)
-      C = Refugo (descarte definitivo)
-    Para cada categoria: horário, regime, contexto de processo no momento exato.
-    Reporta padrão apenas se houver evidência objetiva — nunca força narrativa.
+    Status J (Fora de Especificação) e C (Refugo) separados.
+    Para cada bobina: horário, regime, valor da variável-alvo e contexto de processo.
+    Status é por bobina inteira (decisão integrada do sistema de qualidade),
+    não específico por variável — o que muda é qual valor é reportado.
     """
     col_status = "Status_qual" if "Status_qual" in base_bobina.columns else "Status"
     resultado: dict[str, Any] = {}
@@ -420,8 +447,7 @@ def casos_fora_spec(base_bobina: "pd.DataFrame") -> dict:
 
         if subset.empty:
             resultado[status] = {
-                "n": 0,
-                "bobinas": [],
+                "n": 0, "bobinas": [],
                 "padrao_identificado": None,
                 "nota": "Nenhuma ocorrência neste período.",
             }
@@ -433,34 +459,35 @@ def casos_fora_spec(base_bobina: "pd.DataFrame") -> dict:
                 "track_num": int(row.get("Track Num", 0)),
                 "timestamp": str(row.get("timestamp_prod", ""))[:16],
                 "regime": row.get("regime", "N/A"),
-                "espessura_mm": _safe_float(row, "Espessura"),
+                "variavel_alvo": variavel_alvo,
+                "valor": _safe_float(row, variavel_alvo),
+                "unidade": _unidade(variavel_alvo),
                 "codigo_refugo": str(row.get("Código Refugo", "")).strip(),
                 "familia": str(row.get("Familia Fabricada", "")),
-                "turma": str(row.get("Turma_prod", row.get("Turma_qual", row.get("Turma", "")))),
+                "turma": str(row.get(
+                    "Turma_prod", row.get("Turma_qual", row.get("Turma", ""))
+                )),
                 "contexto": {
-                    "prensa_kn_m":        _safe_float(row, "PRENSA"),
-                    "umidade_qcs_pct":    _safe_float(row, "umidade QCS"),
-                    "potencia_ref01_kw":  _safe_float(row, "Potência Ref. 01"),
-                    "potencia_ref02_kw":  _safe_float(row, "Potência Ref. 02"),
-                    "velocidade_m_min":   _safe_float(row, "Velocidade"),
-                    "capota_ls_c":        _safe_float(row, "Temperatura Capota LS"),
-                    "redry_pct":          _safe_float(row, "Redry"),
+                    "prensa_kn_m":       _safe_float(row, "PRENSA"),
+                    "umidade_qcs_pct":   _safe_float(row, "umidade QCS"),
+                    "potencia_ref01_kw": _safe_float(row, "Potência Ref. 01"),
+                    "potencia_ref02_kw": _safe_float(row, "Potência Ref. 02"),
+                    "velocidade_m_min":  _safe_float(row, "Velocidade"),
+                    "capota_ls_c":       _safe_float(row, "Temperatura Capota LS"),
+                    "redry_pct":         _safe_float(row, "Redry"),
                 },
             })
 
         padrao, nota = _detectar_padrao_spec(subset, len(bobinas))
         resultado[status] = {
-            "n": len(bobinas),
-            "bobinas": bobinas,
-            "padrao_identificado": padrao,
-            "nota": nota,
+            "n": len(bobinas), "bobinas": bobinas,
+            "padrao_identificado": padrao, "nota": nota,
         }
 
     return resultado
 
 
 def _detectar_padrao_spec(subset: "pd.DataFrame", n: int) -> tuple[bool, str]:
-    """Padrão identificado apenas se CV% de PRENSA < 15% com n ≥ 3."""
     if n < 3:
         return False, (
             f"Amostra muito pequena ({n} bobina(s)) — "
@@ -468,11 +495,9 @@ def _detectar_padrao_spec(subset: "pd.DataFrame", n: int) -> tuple[bool, str]:
         )
     if "PRENSA" not in subset.columns:
         return False, "PRENSA não disponível para análise de padrão."
-
     prensas = subset["PRENSA"].dropna()
     if prensas.empty or prensas.mean() == 0:
         return False, "Dados de PRENSA ausentes ou zerados para estas bobinas."
-
     cv = prensas.std() / prensas.mean()
     if cv < 0.15:
         return True, (
@@ -488,54 +513,62 @@ def _detectar_padrao_spec(subset: "pd.DataFrame", n: int) -> tuple[bool, str]:
 
 # ── Ponto de entrada único ────────────────────────────────────────────────────
 
-def resumo_espessura(
+def resumo_qualidade(
+    variavel_alvo: str = "Espessura",
     path_prod: "Path | str | None" = None,
     path_qual: "Path | str | None" = None,
     path_proc: "Path | str | None" = None,
 ) -> dict:
     """
     Ponto de entrada único para o dashboard.
-    Retorna sempre um dict com 'dados_teste': True e 'ok': bool.
-    Em caso de erro, 'ok' é False e 'erro' contém a mensagem.
+    Aceita qualquer coluna numérica de qualidade como variavel_alvo.
+    Retorna sempre dict com 'dados_teste': True e 'ok': bool.
     """
     try:
         bases = carregar_bases(path_prod, path_qual, path_proc)
         base = cruzar_fontes(bases)
 
         if base.empty:
-            return _resultado_erro("Nenhuma bobina resultou do cruzamento das três fontes.", bases)
+            return _erro("Nenhuma bobina resultou do cruzamento das três fontes.", bases)
+        if variavel_alvo not in base.columns:
+            return _erro(
+                f"Variável '{variavel_alvo}' não encontrada nos dados de qualidade.", bases
+            )
 
-        # Detecção de regime na PRENSA (principal variável com efeito em espessura)
         mudancas = detectar_mudanca_regime(bases["processo"], col="PRENSA")
-        base, avisos_regime = segmentar_regimes(base, mudancas)
+        base, avisos_regime = segmentar_regimes(base, mudancas, col_regime="PRENSA")
 
-        # Correlações globais
-        corrs_globais = calcular_correlacoes_espessura(base)
-
-        # Correlações por regime (só se houver segmentação real)
+        corrs_globais = calcular_correlacoes(base, variavel_alvo)
         corrs_por_regime: dict[str, list] = {}
         if mudancas:
             for regime in base["regime"].unique():
-                corrs_por_regime[regime] = calcular_correlacoes_espessura(base, regime=regime)
+                corrs_por_regime[regime] = calcular_correlacoes(
+                    base, variavel_alvo, regime=regime
+                )
 
-        casos = casos_fora_spec(base)
+        casos = casos_fora_spec(base, variavel_alvo)
 
-        esp = base["Espessura"].dropna()
+        val = base[variavel_alvo].dropna()
+        unidade = _unidade(variavel_alvo)
+
         return {
             "dados_teste": True,
             "ok": True,
+            "variavel_alvo": variavel_alvo,
+            "unidade": unidade,
             "arquivos": bases["arquivos"],
             "periodo": {
                 "ini": str(base["timestamp_prod"].min())[:16],
                 "fim": str(base["timestamp_prod"].max())[:16],
             },
             "n_bobinas": len(base),
-            "espessura_resumo": {
-                "media_mm": round(float(esp.mean()), 4),
-                "std_mm":   round(float(esp.std()),  4),
-                "min_mm":   round(float(esp.min()),  4),
-                "max_mm":   round(float(esp.max()),  4),
-                "cv_pct":   round(float(esp.std() / esp.mean() * 100), 2),
+            "var_resumo": {
+                "media":  round(float(val.mean()), 4),
+                "std":    round(float(val.std()),  4),
+                "min":    round(float(val.min()),  4),
+                "max":    round(float(val.max()),  4),
+                "cv_pct": round(float(val.std() / val.mean() * 100), 2),
+                "unidade": unidade,
             },
             "mudancas_regime": [
                 {**m, "timestamp": str(m["timestamp"])[:16]} for m in mudancas
@@ -550,10 +583,8 @@ def resumo_espessura(
         return {"dados_teste": True, "ok": False, "erro": str(exc)}
 
 
-def _resultado_erro(msg: str, bases: dict | None = None) -> dict:
+def _erro(msg: str, bases: dict | None = None) -> dict:
     return {
-        "dados_teste": True,
-        "ok": False,
-        "erro": msg,
+        "dados_teste": True, "ok": False, "erro": msg,
         "arquivos": bases["arquivos"] if bases else {},
     }

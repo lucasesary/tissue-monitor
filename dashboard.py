@@ -48,7 +48,7 @@ from integracao import (
     TARGETS_PQ,
 )
 from relatorio_pdf import gerar_pdf_relatorio
-from services.analise_espessura import resumo_espessura
+from services.analise_qualidade import resumo_qualidade, VARIAVEIS_QUALIDADE
 
 # ── fontes de dados: Postgres (Neon) substitui leitura de arquivos locais ─
 # Redefinimos as 4 funções importadas de integracao para que todos os
@@ -2034,7 +2034,7 @@ def _kpi_esp(label: str, valor: str, cor: str = "#FFFFFF") -> html.Div:
     ])
 
 
-def _render_espessura(res: dict) -> list:
+def _render_qualidade(res: dict, variavel_alvo: str = "Espessura") -> list:
     if not res.get("ok"):
         erro = res.get("erro", "")
         # Arquivos de dados de teste só existem localmente — não são commitados
@@ -2048,7 +2048,7 @@ def _render_espessura(res: dict) -> list:
             }, children=[
                 html.Div("📂", style={"fontSize": "2.5rem", "marginBottom": "12px"}),
                 html.Div(
-                    "Análise de espessura disponível apenas no ambiente local",
+                    "Análise de qualidade disponível apenas no ambiente local",
                     style={"fontSize": "1rem", "fontWeight": 600, "color": P["text"], "marginBottom": "8px"},
                 ),
                 html.Div(
@@ -2065,9 +2065,10 @@ def _render_espessura(res: dict) -> list:
             style={"color": P["crit"], "padding": "20px", "fontSize": "0.9rem"},
         )]
 
-    esp = res["espessura_resumo"]
+    esp = res["var_resumo"]
     n = res["n_bobinas"]
     periodo = f"{res['periodo']['ini']} → {res['periodo']['fim']}"
+    unidade = esp.get("unidade", "u")
 
     # ── KPIs ──────────────────────────────────────────────────────────────
     kpis = html.Div(style={
@@ -2075,8 +2076,8 @@ def _render_espessura(res: dict) -> list:
         "gap": "10px", "marginBottom": "20px",
     }, children=[
         _kpi_esp("Bobinas cruzadas", str(n), P["accent"]),
-        _kpi_esp("Espessura média", f"{esp['media_mm']:.4f} mm", P["text"]),
-        _kpi_esp("Desvio padrão", f"± {esp['std_mm']:.4f} mm", P["muted"]),
+        _kpi_esp(f"{variavel_alvo} média", f"{esp['media']:.4f} {unidade}", P["text"]),
+        _kpi_esp("Desvio padrão", f"± {esp['std']:.4f} {unidade}", P["muted"]),
         _kpi_esp("CV%", f"{esp['cv_pct']:.2f} %",
                  P["ok"] if esp["cv_pct"] < 3 else P["warn"]),
         _kpi_esp("Período", periodo, P["muted"]),
@@ -2133,7 +2134,7 @@ def _render_espessura(res: dict) -> list:
     ])
 
     sec_corr = section(
-        "Correlação com Espessura (todas as bobinas)",
+        f"Correlação com {variavel_alvo} (todas as bobinas)",
         html.Table(
             [html.Thead(cabecalho_corr), html.Tbody(linhas_corr)],
             style={"width": "100%", "borderCollapse": "collapse"},
@@ -2180,7 +2181,7 @@ def _render_espessura(res: dict) -> list:
             }, children=[
                 html.Span(f"Track {b['track_num']}  {b['timestamp']}  "
                           f"Turma {b['turma']}  Regime: {b['regime']}  "
-                          f"Espessura: {b['espessura_mm']} mm",
+                          f"{b['variavel_alvo']}: {b['valor']} {b['unidade']}",
                           style={"color": P["text"], "fontWeight": 500}),
                 html.Br(),
                 html.Span(
@@ -2275,7 +2276,7 @@ def criar_app() -> Dash:
             html.Button("Downtime",    id="nav-downtime",  className="nav-tab",    n_clicks=0),
             html.Button("Processo × Qualidade", id="nav-pq", className="nav-tab", n_clicks=0),
             html.Button("Temp. Yankee", id="nav-yankee",    className="nav-tab", n_clicks=0),
-            html.Button("Espessura",    id="nav-espessura", className="nav-tab", n_clicks=0),
+            html.Button("Análise",      id="nav-analise",   className="nav-tab", n_clicks=0),
             html.Button("Relatórios",   id="nav-relatorio", className="nav-tab", n_clicks=0),
         ]),
 
@@ -2867,8 +2868,8 @@ def criar_app() -> Dash:
             ]),
         ]),
 
-        # ══ ABA ESPESSURA ═════════════════════════════════════════════════
-        html.Div(id="aba-espessura", className="page", style={"display": "none"}, children=[
+        # ══ ABA ANÁLISE DE QUALIDADE ══════════════════════════════════════
+        html.Div(id="aba-analise", className="page", style={"display": "none"}, children=[
 
             # Aviso estático — sempre visível, independente de seleção
             html.Div(
@@ -2887,11 +2888,26 @@ def criar_app() -> Dash:
                 ],
             ),
 
+            # Seletor de variável-alvo
+            html.Div(style={"marginBottom": "16px", "display": "flex",
+                            "alignItems": "center", "gap": "12px"}, children=[
+                html.Span("Variável:", style={"fontSize": "0.82rem", "color": P["muted"],
+                                               "whiteSpace": "nowrap"}),
+                dcc.Dropdown(
+                    id="analise-var-dropdown",
+                    options=VARIAVEIS_QUALIDADE,
+                    value="Espessura",
+                    clearable=False,
+                    searchable=False,
+                    style={"width": "260px", "fontSize": "0.82rem"},
+                ),
+            ]),
+
             dcc.Loading(
-                id="esp-loading",
+                id="analise-loading",
                 type="circle",
                 color="#00D4FF",
-                children=html.Div(id="esp-content"),
+                children=html.Div(id="analise-content"),
             ),
         ]),
 
@@ -3257,8 +3273,8 @@ def criar_app() -> Dash:
         function(n1, n2, n3, n4, n5, n6, n7) {
             var t = dash_clientside.callback_context.triggered;
             var tid = (t && t.length) ? t[0].prop_id.split('.')[0] : 'nav-processo';
-            var ids  = ['nav-processo','nav-qualidade','nav-downtime','nav-pq','nav-yankee','nav-espessura','nav-relatorio'];
-            var abas = ['processo','qualidade','downtime','pq','yankee','espessura','relatorio'];
+            var ids  = ['nav-processo','nav-qualidade','nav-downtime','nav-pq','nav-yankee','nav-analise','nav-relatorio'];
+            var abas = ['processo','qualidade','downtime','pq','yankee','analise','relatorio'];
             var idx  = ids.indexOf(tid);
             var ativa = (idx >= 0) ? abas[idx] : 'processo';
             var show = {display:'block'};
@@ -3270,14 +3286,14 @@ def criar_app() -> Dash:
                 ativa==='downtime'  ? 'nav-tab on':'nav-tab',
                 ativa==='pq'        ? 'nav-tab on':'nav-tab',
                 ativa==='yankee'    ? 'nav-tab on':'nav-tab',
-                ativa==='espessura' ? 'nav-tab on':'nav-tab',
+                ativa==='analise'   ? 'nav-tab on':'nav-tab',
                 ativa==='relatorio' ? 'nav-tab on':'nav-tab',
                 ativa==='processo'  ? show:hide,
                 ativa==='qualidade' ? show:hide,
                 ativa==='downtime'  ? show:hide,
                 ativa==='pq'        ? show:hide,
                 ativa==='yankee'    ? show:hide,
-                ativa==='espessura' ? show:hide,
+                ativa==='analise'   ? show:hide,
                 ativa==='relatorio' ? show:hide
             ];
         }
@@ -3288,21 +3304,21 @@ def criar_app() -> Dash:
         Output("nav-downtime",    "className"),
         Output("nav-pq",          "className"),
         Output("nav-yankee",      "className"),
-        Output("nav-espessura",   "className"),
+        Output("nav-analise",     "className"),
         Output("nav-relatorio",   "className"),
         Output("aba-processo",    "style"),
         Output("aba-qualidade",   "style"),
         Output("aba-downtime",    "style"),
         Output("aba-pq",          "style"),
         Output("aba-yankee",      "style"),
-        Output("aba-espessura",   "style"),
+        Output("aba-analise",     "style"),
         Output("aba-relatorio",   "style"),
         Input("nav-processo",     "n_clicks"),
         Input("nav-qualidade",    "n_clicks"),
         Input("nav-downtime",     "n_clicks"),
         Input("nav-pq",           "n_clicks"),
         Input("nav-yankee",       "n_clicks"),
-        Input("nav-espessura",    "n_clicks"),
+        Input("nav-analise",      "n_clicks"),
         Input("nav-relatorio",    "n_clicks"),
     )
 
@@ -4351,16 +4367,18 @@ def criar_app() -> Dash:
         )
         return f"✓ {n_rows} correlações salvas"
 
-    # ── aba espessura ─────────────────────────────────────────────────────
+    # ── aba análise de qualidade ──────────────────────────────────────────
     @callback(
-        Output("esp-content", "children"),
+        Output("analise-content", "children"),
         Input("nav-ativa", "data"),
+        Input("analise-var-dropdown", "value"),
         prevent_initial_call=True,
     )
-    def atualizar_espessura(nav):
-        if nav != "espessura":
+    def atualizar_analise(nav, variavel):
+        if nav != "analise":
             raise PreventUpdate
-        return _render_espessura(resumo_espessura())
+        variavel = variavel or "Espessura"
+        return _render_qualidade(resumo_qualidade(variavel_alvo=variavel), variavel)
 
     # ── gerar PDF ─────────────────────────────────────────────────────────
     @callback(
