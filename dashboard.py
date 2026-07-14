@@ -2035,12 +2035,12 @@ def _kpi_esp(label: str, valor: str, cor: str = "#FFFFFF") -> html.Div:
 
 
 def _render_qualidade(res: dict, variavel_alvo: str = "Espessura") -> list:
+    fonte = res.get("fonte", "local")
+
     if not res.get("ok"):
         erro = res.get("erro", "")
-        # Arquivos de dados de teste só existem localmente — não são commitados
-        # por conterem dados reais de produção. No Render (e em qualquer ambiente
-        # sem os arquivos locais) a aba mostra esta mensagem em vez de erro cru.
-        if "não encontrado" in erro or "FileNotFoundError" in erro:
+        # Sem banco e sem arquivos locais — mostra card explicativo
+        if "não encontrado" in erro or "FileNotFoundError" in erro or fonte == "none":
             return [html.Div(style={
                 "background": P["card"], "borderRadius": "8px",
                 "padding": "32px 24px", "textAlign": "center",
@@ -2048,15 +2048,12 @@ def _render_qualidade(res: dict, variavel_alvo: str = "Espessura") -> list:
             }, children=[
                 html.Div("📂", style={"fontSize": "2.5rem", "marginBottom": "12px"}),
                 html.Div(
-                    "Análise de qualidade disponível apenas no ambiente local",
+                    "Nenhuma fonte de dados disponível",
                     style={"fontSize": "1rem", "fontWeight": 600, "color": P["text"], "marginBottom": "8px"},
                 ),
                 html.Div(
-                    "Os arquivos de dados de teste (Boletim de Produção, Qualidade e "
-                    "Histórico de Processo) existem somente na máquina local e não são "
-                    "versionados por conterem dados reais de produção. "
-                    "Esta aba ficará disponível quando a análise for refeita com dados "
-                    "carregados via banco de dados.",
+                    "Não foi possível conectar ao banco de dados nem encontrar arquivos locais. "
+                    "Verifique a variável DATABASE_URL e a conexão com o Neon.",
                     style={"fontSize": "0.82rem", "color": P["muted"], "maxWidth": "520px", "margin": "0 auto"},
                 ),
             ])]
@@ -2064,6 +2061,32 @@ def _render_qualidade(res: dict, variavel_alvo: str = "Espessura") -> list:
             f"Erro ao carregar análise: {erro}",
             style={"color": P["crit"], "padding": "20px", "fontSize": "0.9rem"},
         )]
+
+    # ── Banner de fonte — dinâmico ─────────────────────────────────────────
+    if res.get("dados_teste"):
+        banner = html.Div(style={
+            "background": "#3d2e00", "border": "1px solid #f59e0b",
+            "borderRadius": "8px", "padding": "12px 16px",
+            "marginBottom": "16px", "color": "#fef3c7",
+            "fontSize": "0.82rem", "lineHeight": "1.5",
+        }, children=[
+            html.Strong("⚠ ANÁLISE BASEADA EM DADOS DE TESTE"),
+            html.Span(
+                f" — Arquivos locais ({res['arquivos'].get('qualidade', '')}). "
+                "Validação de método — não usar para decisão operacional."
+            ),
+        ])
+    else:
+        arqs = res.get("arquivos", {})
+        banner = html.Div(style={
+            "background": "#0a2a1a", "border": "1px solid #22c55e",
+            "borderRadius": "8px", "padding": "10px 16px",
+            "marginBottom": "16px", "color": "#bbf7d0",
+            "fontSize": "0.82rem",
+        }, children=[
+            html.Strong("Dados reais de produção"),
+            html.Span(f" — {arqs.get('qualidade', 'Neon DB')} · últimos {res['n_bobinas']} jumbos"),
+        ])
 
     esp = res["var_resumo"]
     n = res["n_bobinas"]
@@ -2179,7 +2202,7 @@ def _render_qualidade(res: dict, variavel_alvo: str = "Espessura") -> list:
                 "padding": "8px 12px", "marginBottom": "6px",
                 "fontSize": "0.75rem", "color": P["muted"],
             }, children=[
-                html.Span(f"Track {b['track_num']}  {b['timestamp']}  "
+                html.Span(f"{b['bobina_id']}  {b['timestamp']}  "
                           f"Turma {b['turma']}  Regime: {b['regime']}  "
                           f"{b['variavel_alvo']}: {b['valor']} {b['unidade']}",
                           style={"color": P["text"], "fontWeight": 500}),
@@ -2198,7 +2221,7 @@ def _render_qualidade(res: dict, variavel_alvo: str = "Espessura") -> list:
 
     sec_casos = section("Bobinas fora de especificação", *blocos_casos)
 
-    return [kpis, sec_regime, sec_corr, sec_casos]
+    return [banner, kpis, sec_regime, sec_corr, sec_casos]
 
 
 # ── app ───────────────────────────────────────────────────────────────────
@@ -2870,23 +2893,6 @@ def criar_app() -> Dash:
 
         # ══ ABA ANÁLISE DE QUALIDADE ══════════════════════════════════════
         html.Div(id="aba-analise", className="page", style={"display": "none"}, children=[
-
-            # Aviso estático — sempre visível, independente de seleção
-            html.Div(
-                style={
-                    "background": "#3d2e00", "border": "1px solid #f59e0b",
-                    "borderRadius": "8px", "padding": "12px 16px",
-                    "marginBottom": "16px", "color": "#fef3c7",
-                    "fontSize": "0.82rem", "lineHeight": "1.5",
-                },
-                children=[
-                    html.Strong("⚠ ANÁLISE BASEADA EM DADOS DE TESTE"),
-                    html.Span(
-                        " — Período: maio/2026. Validação de método, não de parâmetros reais. "
-                        "Não usar para decisão operacional até validação com dados reais de produção."
-                    ),
-                ],
-            ),
 
             # Seletor de variável-alvo
             html.Div(style={"marginBottom": "16px", "display": "flex",

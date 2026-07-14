@@ -231,6 +231,7 @@ def carregar_bases(
         "producao":  _carregar_producao(path_prod),
         "qualidade": _carregar_qualidade(path_qual),
         "processo":  _carregar_processo(path_proc),
+        "fonte":     "local",
         "arquivos": {
             "producao": path_prod.name,
             "qualidade": path_qual.name,
@@ -239,24 +240,62 @@ def carregar_bases(
     }
 
 
+def carregar_bases_db(dias: int = 90) -> dict:
+    """Carrega as três fontes do banco Neon. Levanta exceção se o banco não estiver acessível."""
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent.parent))
+    from db import carregar_qualidade_db, carregar_producao_db, carregar_processo_db
+
+    df_qual = carregar_qualidade_db(dias=dias)
+    df_prod = carregar_producao_db(dias=dias)
+    df_proc = carregar_processo_db(dias=dias)
+
+    if df_qual.empty:
+        raise ValueError(f"Sem dados de qualidade no banco para os últimos {dias} dias.")
+    if df_prod.empty:
+        raise ValueError("Sem dados de produção no banco.")
+    if df_proc.empty:
+        raise ValueError("Sem dados de processo no banco.")
+
+    # Normaliza timestamps para tz-naive (processo já é tz-naive após carregar_processo_db)
+    for df in (df_qual, df_prod):
+        if df["Data"].dt.tz is not None:
+            df["Data"] = df["Data"].dt.tz_localize(None)
+
+    return {
+        "producao":  df_prod,
+        "qualidade": df_qual,
+        "processo":  df_proc,
+        "fonte":     "db",
+        "arquivos":  {"producao": "Neon DB", "qualidade": "Neon DB", "processo": "Neon DB"},
+    }
+
+
 # ── Join das três fontes ──────────────────────────────────────────────────────
 
 def cruzar_fontes(bases: dict) -> "pd.DataFrame":
     """
-    1. Inner join Produção × Qualidade por Track Num = Num.Rastreamento.
+    1. Inner join Produção × Qualidade.
+       - fonte "db": join em Unidade (chave do Neon)
+       - fonte "local": join em Track Num = Num.Rastreamento (arquivos Excel)
     2. merge_asof backward com Processo no timestamp da bobina.
-       Regra: registro de processo imediatamente anterior ao horário da bobina.
     """
+    fonte = bases.get("fonte", "local")
     df_prod = bases["producao"].rename(columns={"Data": "timestamp_prod"}).copy()
-    df_qual = bases["qualidade"].rename(
-        columns={"Num.Rastreamento": "Track Num", "Data": "timestamp_qual"}
-    ).copy()
+    df_qual = bases["qualidade"].rename(columns={"Data": "timestamp_qual"}).copy()
     df_proc = bases["processo"].copy()
 
-    base = pd.merge(
-        df_prod, df_qual, on="Track Num",
-        suffixes=("_prod", "_qual"), how="inner",
-    )
+    if fonte == "db":
+        base = pd.merge(
+            df_prod, df_qual, on="Unidade",
+            suffixes=("_prod", "_qual"), how="inner",
+        )
+    else:
+        df_qual = df_qual.rename(columns={"Num.Rastreamento": "Track Num"})
+        base = pd.merge(
+            df_prod, df_qual, on="Track Num",
+            suffixes=("_prod", "_qual"), how="inner",
+        )
     if base.empty:
         return base
 
@@ -455,8 +494,10 @@ def casos_fora_spec(
 
         bobinas = []
         for _, row in subset.iterrows():
+            # DB usa Unidade como ID de bobina; local usa Track Num
+            bobina_id = row.get("Unidade") or str(int(row.get("Track Num", 0) or 0))
             bobinas.append({
-                "track_num": int(row.get("Track Num", 0)),
+                "bobina_id": str(bobina_id),
                 "timestamp": str(row.get("timestamp_prod", ""))[:16],
                 "regime": row.get("regime", "N/A"),
                 "variavel_alvo": variavel_alvo,
@@ -515,24 +556,39 @@ def _detectar_padrao_spec(subset: "pd.DataFrame", n: int) -> tuple[bool, str]:
 
 def resumo_qualidade(
     variavel_alvo: str = "Espessura",
+    dias: int = 90,
     path_prod: "Path | str | None" = None,
     path_qual: "Path | str | None" = None,
     path_proc: "Path | str | None" = None,
 ) -> dict:
     """
     Ponto de entrada único para o dashboard.
-    Aceita qualquer coluna numérica de qualidade como variavel_alvo.
-    Retorna sempre dict com 'dados_teste': True e 'ok': bool.
+    Tenta carregar do banco Neon primeiro; cai para arquivos locais se o banco
+    não estiver disponível. Retorna sempre dict com 'ok': bool.
     """
+    bases = None
+    fonte = "db"
     try:
-        bases = carregar_bases(path_prod, path_qual, path_proc)
+        bases = carregar_bases_db(dias=dias)
+    except Exception:
+        fonte = "local"
+        try:
+            bases = carregar_bases(path_prod, path_qual, path_proc)
+        except Exception as exc_local:
+            return {"ok": False, "dados_teste": True, "fonte": "none",
+                    "erro": str(exc_local)}
+
+    try:
         base = cruzar_fontes(bases)
 
         if base.empty:
             return _erro("Nenhuma bobina resultou do cruzamento das três fontes.", bases)
         if variavel_alvo not in base.columns:
+            disponiveis = [c for c in _VARS_QUALIDADE_TODAS if c in base.columns]
             return _erro(
-                f"Variável '{variavel_alvo}' não encontrada nos dados de qualidade.", bases
+                f"Variável '{variavel_alvo}' não disponível nesta fonte de dados. "
+                f"Disponíveis: {', '.join(disponiveis) or 'nenhuma'}.",
+                bases,
             )
 
         mudancas = detectar_mudanca_regime(bases["processo"], col="PRENSA")
@@ -552,8 +608,9 @@ def resumo_qualidade(
         unidade = _unidade(variavel_alvo)
 
         return {
-            "dados_teste": True,
             "ok": True,
+            "fonte": fonte,
+            "dados_teste": fonte == "local",
             "variavel_alvo": variavel_alvo,
             "unidade": unidade,
             "arquivos": bases["arquivos"],
@@ -580,11 +637,14 @@ def resumo_qualidade(
         }
 
     except Exception as exc:
-        return {"dados_teste": True, "ok": False, "erro": str(exc)}
+        return {"ok": False, "dados_teste": fonte == "local", "fonte": fonte,
+                "erro": str(exc)}
 
 
 def _erro(msg: str, bases: dict | None = None) -> dict:
+    fonte = bases.get("fonte", "local") if bases else "none"
     return {
-        "dados_teste": True, "ok": False, "erro": msg,
+        "ok": False, "dados_teste": fonte == "local", "fonte": fonte,
+        "erro": msg,
         "arquivos": bases["arquivos"] if bases else {},
     }
