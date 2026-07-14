@@ -2036,8 +2036,32 @@ def _kpi_esp(label: str, valor: str, cor: str = "#FFFFFF") -> html.Div:
 
 def _render_espessura(res: dict) -> list:
     if not res.get("ok"):
+        erro = res.get("erro", "")
+        # Arquivos de dados de teste só existem localmente — não são commitados
+        # por conterem dados reais de produção. No Render (e em qualquer ambiente
+        # sem os arquivos locais) a aba mostra esta mensagem em vez de erro cru.
+        if "não encontrado" in erro or "FileNotFoundError" in erro:
+            return [html.Div(style={
+                "background": P["card"], "borderRadius": "8px",
+                "padding": "32px 24px", "textAlign": "center",
+                "border": f"1px solid {P['border']}",
+            }, children=[
+                html.Div("📂", style={"fontSize": "2.5rem", "marginBottom": "12px"}),
+                html.Div(
+                    "Análise de espessura disponível apenas no ambiente local",
+                    style={"fontSize": "1rem", "fontWeight": 600, "color": P["text"], "marginBottom": "8px"},
+                ),
+                html.Div(
+                    "Os arquivos de dados de teste (Boletim de Produção, Qualidade e "
+                    "Histórico de Processo) existem somente na máquina local e não são "
+                    "versionados por conterem dados reais de produção. "
+                    "Esta aba ficará disponível quando a análise for refeita com dados "
+                    "carregados via banco de dados.",
+                    style={"fontSize": "0.82rem", "color": P["muted"], "maxWidth": "520px", "margin": "0 auto"},
+                ),
+            ])]
         return [html.Div(
-            f"Erro ao carregar análise: {res.get('erro', 'desconhecido')}",
+            f"Erro ao carregar análise: {erro}",
             style={"color": P["crit"], "padding": "20px", "fontSize": "0.9rem"},
         )]
 
